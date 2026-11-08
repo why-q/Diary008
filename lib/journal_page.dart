@@ -52,18 +52,27 @@ class _JournalParagraphState extends State<JournalParagraph> {
   Future<void> _showActions() async {
     final copyRequested = await showModalBottomSheet<bool>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Text('条目操作', style: TextStyle(fontSize: 25, color: ink)),
+              child: Text(
+                '条目操作',
+                style: TextStyle(
+                  fontSize: 25,
+                  color: journalThemeOf(context).ink,
+                ),
+              ),
             ),
             ListTile(
-              leading: const Icon(Icons.content_copy, color: fadedInk),
+              leading: Icon(
+                Icons.content_copy,
+                color: journalThemeOf(context).fadedInk,
+              ),
               title: const Text('复制正文'),
               onTap: () => Navigator.pop(context, true),
             ),
@@ -81,6 +90,7 @@ class _JournalParagraphState extends State<JournalParagraph> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = journalThemeOf(context);
     final entry = widget.entry;
     final reached = _offset.abs() >= threshold;
     final content = Padding(
@@ -91,7 +101,9 @@ class _JournalParagraphState extends State<JournalParagraph> {
           Text(
             entry.text,
             style: journalText.copyWith(
-              color: entry.status == EntryStatus.revised ? fadedInk : ink,
+              color: entry.status == EntryStatus.revised
+                  ? colors.fadedInk
+                  : colors.ink,
               decoration: entry.status == EntryStatus.revised
                   ? TextDecoration.lineThrough
                   : null,
@@ -108,7 +120,10 @@ class _JournalParagraphState extends State<JournalParagraph> {
                   children: [
                     Text(
                       journalDate(entry.due ?? entry.createdOn),
-                      style: const TextStyle(fontSize: 14, color: fadedInk),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: journalThemeOf(context).fadedInk,
+                      ),
                     ),
                     IconButton(
                       tooltip: '复制正文',
@@ -123,7 +138,10 @@ class _JournalParagraphState extends State<JournalParagraph> {
                   Text(
                     widget.annotation!,
                     textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 13, color: fadedInk),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: journalThemeOf(context).fadedInk,
+                    ),
                   ),
                 ],
               ],
@@ -173,8 +191,8 @@ class _JournalParagraphState extends State<JournalParagraph> {
                     Positioned.fill(
                       child: ColoredBox(
                         color: _offset < 0
-                            ? const Color(0xFF8B7356)
-                            : const Color(0xFF776D5A),
+                            ? colors.swipePositive
+                            : colors.swipeNegative,
                         child: Align(
                           alignment: _offset < 0
                               ? Alignment.centerRight
@@ -188,7 +206,7 @@ class _JournalParagraphState extends State<JournalParagraph> {
                               textAlign: TextAlign.center,
                               style: journalText.copyWith(
                                 fontSize: 17,
-                                color: paper,
+                                color: colors.paper,
                               ),
                             ),
                           ),
@@ -201,7 +219,7 @@ class _JournalParagraphState extends State<JournalParagraph> {
                     transform: Matrix4.translationValues(_offset, 0, 0),
                     child: _offset == 0
                         ? content
-                        : ColoredBox(color: paper, child: content),
+                        : ColoredBox(color: colors.paper, child: content),
                   ),
                 ],
               ),

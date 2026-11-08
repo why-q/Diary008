@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 import 'diagnostics.dart';
 import 'journal_theme.dart';
 
+void _noTheme() {}
+
 class DataSettings extends StatefulWidget {
   const DataSettings({
     super.key,
+    this.onTheme = _noTheme,
     required this.onDestroy,
     required this.onExport,
     required this.onImport,
   });
+  final VoidCallback onTheme;
   final Future<String> Function() onDestroy;
   final Future<String> Function() onExport;
   final Future<String> Function() onImport;
@@ -30,7 +34,7 @@ class _DataSettingsState extends State<DataSettings> {
       await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: paper,
+          backgroundColor: journalThemeOf(context).paper,
           title: Text(title),
           content: Text(explanation),
           actions: [
@@ -57,7 +61,7 @@ class _DataSettingsState extends State<DataSettings> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: paper,
+        backgroundColor: journalThemeOf(context).paper,
         title: Text(title),
         content: SingleChildScrollView(child: Text(body)),
         actions: [
@@ -102,7 +106,27 @@ class _DataSettingsState extends State<DataSettings> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('数据与诊断', style: TextStyle(fontSize: 25, color: ink)),
+            Text(
+              '设置',
+              style: TextStyle(
+                fontSize: 25,
+                color: journalThemeOf(context).ink,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextButton(
+              onPressed: _busy ? null : widget.onTheme,
+              child: const Text('外观设置'),
+            ),
+            const Divider(),
+            const SizedBox(height: 12),
+            Text(
+              '数据与诊断',
+              style: TextStyle(
+                fontSize: 20,
+                color: journalThemeOf(context).ink,
+              ),
+            ),
             const SizedBox(height: 16),
             TextButton(
               onPressed: _busy ? null : _showPrivacyNotice,
@@ -191,7 +215,7 @@ class _DataSettingsState extends State<DataSettings> {
                 child: Text(
                   _message!,
                   semanticsLabel: _message,
-                  style: const TextStyle(color: ink),
+                  style: TextStyle(color: journalThemeOf(context).ink),
                 ),
               ),
             TextButton(

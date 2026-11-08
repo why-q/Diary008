@@ -67,7 +67,7 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
     return PopScope(
       canPop: !_busy,
       child: AlertDialog(
-        backgroundColor: paper,
+        backgroundColor: journalThemeOf(context).paper,
         title: Text(exporting ? '设置备份密码' : '输入备份密码'),
         content: SingleChildScrollView(
           child: Column(

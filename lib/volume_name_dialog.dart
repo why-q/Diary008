@@ -32,7 +32,7 @@ class _VolumeNameDialogState extends State<VolumeNameDialog> {
     final creating = widget.sealingVolumeTitle != null;
     final fixedTitle = journalVolumeTitle(widget.volume, '');
     return AlertDialog(
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       scrollable: true,
       title: Text(creating ? '新建$fixedTitle' : '修改卷名'),
       content: Column(

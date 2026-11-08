@@ -24,6 +24,8 @@ import 'reminder_service.dart';
 import 'reminder_settings.dart';
 import 'data_settings.dart';
 import 'diagnostics.dart';
+import 'theme_preferences.dart';
+import 'theme_settings.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,46 +75,124 @@ Future<void> reminderBackgroundMain() async {
   }
 }
 
-class DiaryApp extends StatelessWidget {
+class DiaryApp extends StatefulWidget {
   const DiaryApp({super.key});
+
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: '家族笔记',
-    debugShowCheckedModeBanner: false,
-    locale: const Locale('zh', 'CN'),
-    supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-    localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: paper,
-        systemNavigationBarIconBrightness: Brightness.dark,
+  State<DiaryApp> createState() => _DiaryAppState();
+}
+
+class _DiaryAppState extends State<DiaryApp> {
+  ThemePreferences _themePreferences = const ThemePreferences();
+  Future<void> _themeSaveQueue = Future<void>.value();
+  int _themeRevision = 0;
+  ThemePreferences? _pendingThemePreferences;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadThemePreferences());
+  }
+
+  Future<void> _loadThemePreferences() async {
+    final revision = _themeRevision;
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final preferences = await readThemePreferences(
+        File('${directory.path}/theme_preferences.json'),
+      );
+      if (mounted && revision == _themeRevision) {
+        setState(() => _themePreferences = preferences);
+      }
+    } catch (error, stack) {
+      await Diagnostics.record(
+        'theme.preferences.read.failed',
+        '${error.runtimeType}\n$stack',
+      );
+    }
+  }
+
+  void _changeThemePreferences(ThemePreferences preferences) {
+    if (_themePreferences == preferences) return;
+    _themeRevision++;
+    _pendingThemePreferences = preferences;
+    setState(() => _themePreferences = preferences);
+    _themeSaveQueue = _themeSaveQueue.then((_) async {
+      final toSave = _pendingThemePreferences;
+      _pendingThemePreferences = null;
+      if (toSave == null) return;
+      try {
+        final directory = await getApplicationDocumentsDirectory();
+        await writeThemePreferences(
+          File('${directory.path}/theme_preferences.json'),
+          toSave,
+        );
+      } catch (error, stack) {
+        await Diagnostics.record(
+          'theme.preferences.write.failed',
+          '${error.runtimeType}\n$stack',
+        );
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = switch (_themePreferences.mode) {
+      JournalThemeMode.system => ThemeMode.system,
+      JournalThemeMode.light => ThemeMode.light,
+      JournalThemeMode.dark => ThemeMode.dark,
+    };
+    return MaterialApp(
+      title: '家族笔记',
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      builder: (context, child) {
+        final brightness = _themePreferences.mode == JournalThemeMode.dark
+            ? Brightness.dark
+            : _themePreferences.mode == JournalThemeMode.light
+            ? Brightness.light
+            : MediaQuery.platformBrightnessOf(context);
+        final colors = JournalTheme.fromPalette(
+          _themePreferences.palette,
+          brightness,
+        );
+        final dark = brightness == Brightness.dark;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor: colors.paper,
+            systemNavigationBarIconBrightness: dark
+                ? Brightness.light
+                : Brightness.dark,
+          ),
+          child: child!,
+        );
+      },
+      theme: journalThemeData(_themePreferences.palette, Brightness.light),
+      darkTheme: journalThemeData(_themePreferences.palette, Brightness.dark),
+      themeMode: mode,
+      home: NotebookPage(
+        themePreferences: _themePreferences,
+        onThemeChanged: _changeThemePreferences,
       ),
-      child: child!,
-    ),
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: paper,
-      fontFamily: 'JournalKai',
-      fontFamilyFallback: const ['JournalSerif'],
-      colorScheme: ColorScheme.fromSeed(seedColor: ink, surface: paper),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: ink,
-          textStyle: const TextStyle(fontFamily: 'JournalKai', fontSize: 19),
-        ),
-      ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: InputBorder.none,
-      ),
-    ),
-    home: const NotebookPage(),
-  );
+    );
+  }
 }
 
 class NotebookPage extends StatefulWidget {
-  const NotebookPage({super.key});
+  const NotebookPage({
+    super.key,
+    required this.themePreferences,
+    required this.onThemeChanged,
+  });
+
+  final ThemePreferences themePreferences;
+  final ValueChanged<ThemePreferences> onThemeChanged;
+
   @override
   State<NotebookPage> createState() => _NotebookPageState();
 }
@@ -230,7 +310,7 @@ class _NotebookPageState extends State<NotebookPage>
     ..showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 17)),
-        backgroundColor: ink,
+        backgroundColor: journalThemeOf(context).ink,
         duration: const Duration(seconds: 4),
       ),
     );
@@ -328,7 +408,7 @@ class _NotebookPageState extends State<NotebookPage>
     if (_busy || await _expire() || !mounted) return;
     final chosen = await showModalBottomSheet<VolumeSelection>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       builder: (_) => VolumePicker(book: _book!),
     );
     if (!mounted || chosen == null || _busy || await _expire() || !mounted) {
@@ -563,7 +643,7 @@ class _NotebookPageState extends State<NotebookPage>
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       isScrollControlled: true,
       builder: (_) => ReminderSettings(
         result: _reminderResult,
@@ -580,7 +660,7 @@ class _NotebookPageState extends State<NotebookPage>
   void _showDataSettings() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       isScrollControlled: true,
       isDismissible: true,
       constraints: BoxConstraints(
@@ -588,9 +668,22 @@ class _NotebookPageState extends State<NotebookPage>
       ),
       enableDrag: false,
       builder: (_) => DataSettings(
+        onTheme: _showThemeSettings,
         onDestroy: _destroyAllRecords,
         onExport: _exportBackup,
         onImport: _importBackup,
+      ),
+    );
+  }
+
+  void _showThemeSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: journalThemeOf(context).paper,
+      isScrollControlled: true,
+      builder: (_) => ThemeSettings(
+        preferences: widget.themePreferences,
+        onChanged: widget.onThemeChanged,
       ),
     );
   }
@@ -603,7 +696,7 @@ class _NotebookPageState extends State<NotebookPage>
     final encrypted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: paper,
+        backgroundColor: journalThemeOf(context).paper,
         title: const Text('选择备份方式'),
         content: const Text('明文备份可直接读取；密码加密备份需要密码才能恢复。'),
         actions: [
@@ -669,7 +762,7 @@ class _NotebookPageState extends State<NotebookPage>
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: paper,
+          backgroundColor: journalThemeOf(context).paper,
           title: const Text('用备份替换所有记录？'),
           content: Text(
             '备份包含 ${backup.archives.length + 1} 卷、$count 条记录。'
@@ -832,14 +925,14 @@ class _NotebookPageState extends State<NotebookPage>
                   padding: const EdgeInsets.fromLTRB(28, 22, 20, 0),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'THE SEALED NOTEBOOK',
                           style: TextStyle(
                             fontFamily: 'JournalSerif',
                             fontSize: 12,
                             letterSpacing: 2,
-                            color: fadedInk,
+                            color: journalThemeOf(context).fadedInk,
                           ),
                         ),
                       ),
@@ -854,18 +947,21 @@ class _NotebookPageState extends State<NotebookPage>
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 15,
-                                color: fadedInk,
+                                color: journalThemeOf(context).fadedInk,
                               ),
                             ),
                           ),
                         ),
                       TextButton(
                         onPressed: _showDataSettings,
-                        child: const Text(
+                        child: Text(
                           '设置',
-                          style: TextStyle(fontSize: 15, color: fadedInk),
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: journalThemeOf(context).fadedInk,
+                          ),
                         ),
                       ),
                     ],
@@ -879,7 +975,12 @@ class _NotebookPageState extends State<NotebookPage>
                             children: [
                               Padding(
                                 padding: const EdgeInsets.all(24),
-                                child: Text(_loadError!, style: journalText),
+                                child: Text(
+                                  _loadError!,
+                                  style: journalText.copyWith(
+                                    color: journalThemeOf(context).ink,
+                                  ),
+                                ),
                               ),
                               TextButton(
                                 onPressed: _load,
@@ -889,8 +990,10 @@ class _NotebookPageState extends State<NotebookPage>
                           ),
                         )
                       : _book == null
-                      ? const Center(
-                          child: CircularProgressIndicator(color: fadedInk),
+                      ? Center(
+                          child: CircularProgressIndicator(
+                            color: journalThemeOf(context).fadedInk,
+                          ),
                         )
                       : CustomScrollView(
                           controller: _scrollController,
@@ -905,24 +1008,24 @@ class _NotebookPageState extends State<NotebookPage>
                                       CrossAxisAlignment.stretch,
                                   children: [
                                     const SizedBox(height: 24),
-                                    const Text(
+                                    Text(
                                       '家族笔记',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         fontSize: 34,
                                         letterSpacing: 8,
-                                        color: ink,
+                                        color: journalThemeOf(context).ink,
                                       ),
                                     ),
                                     const SizedBox(height: 7),
-                                    const Text(
+                                    Text(
                                       'THE FAMILY JOURNAL',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         fontFamily: 'JournalSerif',
                                         fontSize: 13,
                                         letterSpacing: 2.4,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                     const SizedBox(height: 14),
@@ -953,9 +1056,10 @@ class _NotebookPageState extends State<NotebookPage>
                                             ),
                                             child: Text(
                                               _filterName(_filter),
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 14,
-                                                color: fadedInk,
+                                                color: journalThemeOf(context)
+                                                    .fadedInk,
                                               ),
                                             ),
                                           ),
@@ -984,9 +1088,10 @@ class _NotebookPageState extends State<NotebookPage>
                                                       NotebookSortOrder.writing
                                                   ? '书写顺序'
                                                   : '有效日期',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 14,
-                                                color: fadedInk,
+                                                color: journalThemeOf(context)
+                                                    .fadedInk,
                                               ),
                                             ),
                                           ),
@@ -995,11 +1100,12 @@ class _NotebookPageState extends State<NotebookPage>
                                     ),
                                     if (archive != null) ...[
                                       const SizedBox(height: 16),
-                                      const Text(
+                                      Text(
                                         '本卷已封存 · 只读',
                                         style: TextStyle(
                                           fontSize: 18,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
@@ -1010,10 +1116,11 @@ class _NotebookPageState extends State<NotebookPage>
                                             : '失效：${journalDate(archive.invalidatedAt!.toLocal())}\n'
                                                   '封存：${journalDate(archive.archivedAt.toLocal())}\n'
                                                   '缘由：预言逾期未履行。状态以失效时为准。',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 14,
                                           height: 1.8,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ],
@@ -1032,7 +1139,8 @@ class _NotebookPageState extends State<NotebookPage>
                                               : '此处暂无相应的记录。',
                                           textAlign: TextAlign.center,
                                           style: journalText.copyWith(
-                                            color: fadedInk,
+                                            color: journalThemeOf(context)
+                                                .fadedInk,
                                             height: 2.2,
                                           ),
                                         ),
@@ -1096,10 +1204,10 @@ class _NotebookPageState extends State<NotebookPage>
                                           ? '请于期限前确认履行，或留下修订；\n逾期，本卷封存，另启新页。'
                                           : '旧卷留存，往事不可改写。',
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 13,
                                         height: 1.8,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                     if (archive == null &&
@@ -1108,12 +1216,13 @@ class _NotebookPageState extends State<NotebookPage>
                                               e.status == EntryStatus.pending,
                                         )) ...[
                                       const SizedBox(height: 18),
-                                      const Text(
+                                      Text(
                                         '左滑履行 · 右滑修订',
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
                                           fontSize: 13,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ],
@@ -1131,9 +1240,10 @@ class _NotebookPageState extends State<NotebookPage>
                                                   ? '每日提醒 · ${_reminderResult!.preferences.hour.toString().padLeft(2, '0')}:${_reminderResult!.preferences.minute.toString().padLeft(2, '0')}'
                                                   : '自动提醒 · 当地时间09:00'
                                             : '开启提醒',
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 14,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ),

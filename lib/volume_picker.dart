@@ -65,9 +65,9 @@ class VolumePicker extends StatelessWidget {
                                   const SizedBox(height: 4),
                                   Text(
                                     journalDate(archive.archivedAt.toLocal()),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontSize: 14,
-                                      color: fadedInk,
+                                      color: journalThemeOf(context).fadedInk,
                                     ),
                                   ),
                                 ],
@@ -111,7 +111,7 @@ Future<void> _confirmDeleteArchive(
   final confirmed = await showDialog<bool>(
     context: sheetContext,
     builder: (context) => AlertDialog(
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       title: const Text('删除封存卷'),
       content: Text(
         '$title中的记录将永久删除，无法恢复。其后各卷的卷号会依次前移。',

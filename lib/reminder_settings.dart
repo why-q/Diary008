@@ -125,10 +125,10 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                     : widget.result!.enabled
                     ? '通知已开启，已安排 ${widget.result!.scheduledCount} 次未来提醒。'
                     : '系统通知尚未开启，或提醒通道已被关闭。',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   height: 1.7,
-                  color: fadedInk,
+                  color: journalThemeOf(context).fadedInk,
                 ),
               ),
               const SizedBox(height: 12),
@@ -139,11 +139,15 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                 contentPadding: EdgeInsets.zero,
                 title: Text('自动提醒', style: journalText.copyWith(fontSize: 19)),
               ),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(left: 52, bottom: 8),
                 child: Text(
                   '仅提醒当前卷，按当地上午九点安排；同一天多个条目合并为一次。七天内只在截止当天提醒；更长期限采用第1、3、7、14、30、60、90、180、270天，并保留截止当天；超过30天再加最后一周。卷内最早期限之后不再安排。',
-                  style: TextStyle(fontSize: 14, height: 1.65, color: fadedInk),
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.65,
+                    color: journalThemeOf(context).fadedInk,
+                  ),
                 ),
               ),
               RadioListTile<ReminderMode>(
@@ -154,14 +158,14 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                 title: Text('每日提醒', style: journalText.copyWith(fontSize: 19)),
               ),
               if (_mode == ReminderMode.daily) ...[
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(left: 52, bottom: 8),
                   child: Text(
                     '每天按设备当地时间提醒一次，即使当前没有待办记录也会继续提醒。',
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.65,
-                      color: fadedInk,
+                      color: journalThemeOf(context).fadedInk,
                     ),
                   ),
                 ),
@@ -176,15 +180,23 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                 ),
               ],
               const SizedBox(height: 8),
-              const Text(
+              Text(
                 '提醒跟随设备当地时间，不补发已过节点。系统省电策略或通知权限可能影响送达，无法保证准点。',
-                style: TextStyle(fontSize: 14, height: 1.65, color: fadedInk),
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.65,
+                  color: journalThemeOf(context).fadedInk,
+                ),
               ),
               if (_saveFailed) ...[
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   '设置或提醒排程未完成，请重新检查设置后重试。',
-                  style: TextStyle(fontSize: 15, height: 1.6, color: ink),
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.6,
+                    color: journalThemeOf(context).ink,
+                  ),
                 ),
               ],
               const SizedBox(height: 16),

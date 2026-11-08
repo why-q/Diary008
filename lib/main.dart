@@ -23,6 +23,7 @@ import 'reminder_preferences.dart';
 import 'reminder_service.dart';
 import 'reminder_settings.dart';
 import 'data_settings.dart';
+import 'font_preferences.dart';
 import 'diagnostics.dart';
 
 void main() {
@@ -73,46 +74,70 @@ Future<void> reminderBackgroundMain() async {
   }
 }
 
-class DiaryApp extends StatelessWidget {
+class DiaryApp extends StatefulWidget {
   const DiaryApp({super.key});
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: '家族笔记',
-    debugShowCheckedModeBanner: false,
-    locale: const Locale('zh', 'CN'),
-    supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-    localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: paper,
-        systemNavigationBarIconBrightness: Brightness.dark,
-      ),
-      child: child!,
-    ),
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: paper,
-      fontFamily: 'JournalKai',
-      fontFamilyFallback: const ['JournalSerif'],
-      colorScheme: ColorScheme.fromSeed(seedColor: ink, surface: paper),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: ink,
-          textStyle: const TextStyle(fontFamily: 'JournalKai', fontSize: 19),
+  State<DiaryApp> createState() => _DiaryAppState();
+}
+
+class _DiaryAppState extends State<DiaryApp> {
+  final _fontPreference = FontPreferenceController();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_fontPreference.load());
+  }
+
+  @override
+  void dispose() {
+    _fontPreference.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AnimatedBuilder(
+    animation: _fontPreference,
+    builder: (context, _) => MaterialApp(
+      title: '家族笔记',
+      debugShowCheckedModeBanner: false,
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value: const SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: Brightness.dark,
+          systemNavigationBarColor: paper,
+          systemNavigationBarIconBrightness: Brightness.dark,
         ),
+        child: child!,
       ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: InputBorder.none,
+      theme: applyFontPreference(
+        ThemeData(
+          useMaterial3: true,
+          scaffoldBackgroundColor: paper,
+          colorScheme: ColorScheme.fromSeed(seedColor: ink, surface: paper),
+          textButtonTheme: TextButtonThemeData(
+            style: TextButton.styleFrom(
+              foregroundColor: ink,
+              textStyle: const TextStyle(fontSize: 19),
+            ),
+          ),
+          inputDecorationTheme: const InputDecorationTheme(
+            border: InputBorder.none,
+          ),
+        ),
+        _fontPreference.preference,
       ),
+      home: NotebookPage(fontPreferenceController: _fontPreference),
     ),
-    home: const NotebookPage(),
   );
 }
 
 class NotebookPage extends StatefulWidget {
-  const NotebookPage({super.key});
+  const NotebookPage({super.key, required this.fontPreferenceController});
+  final FontPreferenceController fontPreferenceController;
   @override
   State<NotebookPage> createState() => _NotebookPageState();
 }
@@ -588,6 +613,7 @@ class _NotebookPageState extends State<NotebookPage>
       ),
       enableDrag: false,
       builder: (_) => DataSettings(
+        fontPreferenceController: widget.fontPreferenceController,
         onDestroy: _destroyAllRecords,
         onExport: _exportBackup,
         onImport: _importBackup,
@@ -836,7 +862,6 @@ class _NotebookPageState extends State<NotebookPage>
                         child: Text(
                           'THE SEALED NOTEBOOK',
                           style: TextStyle(
-                            fontFamily: 'JournalSerif',
                             fontSize: 12,
                             letterSpacing: 2,
                             color: fadedInk,
@@ -919,7 +944,6 @@ class _NotebookPageState extends State<NotebookPage>
                                       'THE FAMILY JOURNAL',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        fontFamily: 'JournalSerif',
                                         fontSize: 13,
                                         letterSpacing: 2.4,
                                         color: fadedInk,

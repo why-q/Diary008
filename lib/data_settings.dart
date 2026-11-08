@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'diagnostics.dart';
 import 'journal_theme.dart';
+import 'font_preferences.dart';
 
 class DataSettings extends StatefulWidget {
   const DataSettings({
     super.key,
+    required this.fontPreferenceController,
     required this.onDestroy,
     required this.onExport,
     required this.onImport,
   });
+  final FontPreferenceController fontPreferenceController;
   final Future<String> Function() onDestroy;
   final Future<String> Function() onExport;
   final Future<String> Function() onImport;
@@ -102,8 +105,12 @@ class _DataSettingsState extends State<DataSettings> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('数据与诊断', style: TextStyle(fontSize: 25, color: ink)),
+            const Text('设置', style: TextStyle(fontSize: 25, color: ink)),
             const SizedBox(height: 16),
+            FontPreferenceSettings(controller: widget.fontPreferenceController),
+            const Divider(height: 32),
+            const Text('数据与诊断', style: TextStyle(fontSize: 19, color: ink)),
+            const SizedBox(height: 12),
             TextButton(
               onPressed: _busy ? null : _showPrivacyNotice,
               child: const Text('隐私说明'),

@@ -5,13 +5,7 @@ import 'package:flutter/material.dart';
 const paper = Color(0xFFF1E8D6);
 const ink = Color(0xFF44382D);
 const fadedInk = Color(0xFF897B67);
-const journalText = TextStyle(
-  fontFamily: 'JournalKai',
-  fontFamilyFallback: ['JournalSerif'],
-  color: ink,
-  fontSize: 21,
-  height: 1.8,
-);
+const journalText = TextStyle(color: ink, fontSize: 21, height: 1.8);
 
 String _volumeNumber(int number, {bool leading = true}) {
   const digits = '零一二三四五六七八九';

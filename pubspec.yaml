@@ -1,0 +1,38 @@
+name: diary008
+description: "一本以预言约束行动的古朴日记。"
+publish_to: 'none'
+version: 0.4.0+4
+
+environment:
+  sdk: ^3.13.5
+
+dependencies:
+  cryptography: ^2.9.0
+  flutter:
+    sdk: flutter
+  flutter_local_notifications: ^22.3.2
+  flutter_localizations:
+    sdk: flutter
+  path_provider: ^2.1.6
+  timezone: ^0.11.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  integration_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/MaShanZheng-OFL.txt
+    - assets/fonts/CormorantGaramond-OFL.txt
+    - assets/privacy_notice.txt
+  fonts:
+    - family: JournalKai
+      fonts:
+        - asset: assets/fonts/MaShanZheng.ttf
+    - family: JournalSerif
+      fonts:
+        - asset: assets/fonts/CormorantGaramond.ttf

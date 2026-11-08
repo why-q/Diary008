@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_localizations.dart';
 import 'backup_encryption.dart';
 import 'journal_theme.dart';
 
@@ -38,7 +39,12 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
     final encrypted = widget.encrypted;
     if (password.isEmpty ||
         (encrypted == null && password != _confirmation.text)) {
-      setState(() => _error = password.isEmpty ? '密码不能为空。' : '两次输入的密码不一致。');
+      final l10n = AppLocalizations.of(context);
+      setState(
+        () => _error = password.isEmpty
+            ? l10n.passwordEmpty
+            : l10n.passwordsDiffer,
+      );
       return;
     }
     if (encrypted == null) {
@@ -53,13 +59,19 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
       final plaintext = await decryptBackup(encrypted, password);
       if (mounted) Navigator.pop(context, plaintext);
     } on FormatException catch (error) {
-      if (mounted) setState(() => _error = error.message);
+      if (mounted) {
+        setState(() => _error = _l10n.localizeBackupError(error.message));
+      }
     } catch (_) {
-      if (mounted) setState(() => _error = '解密未完成，请重试。');
+      if (mounted) {
+        setState(() => _error = AppLocalizations.of(context).decryptionFailure);
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  AppLocalizations get _l10n => AppLocalizations.of(context);
 
   @override
   Widget build(BuildContext context) {
@@ -68,7 +80,9 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
       canPop: !_busy,
       child: AlertDialog(
         backgroundColor: paper,
-        title: Text(exporting ? '设置备份密码' : '输入备份密码'),
+        title: Text(
+          exporting ? _l10n.setBackupPassword : _l10n.enterBackupPassword,
+        ),
         content: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -76,8 +90,8 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
             children: [
               Text(
                 exporting
-                    ? '密码仅用于本次备份，不会保存。忘记密码将无法恢复备份；应用内笔记仍按原方式存储。'
-                    : '解密成功后仍需确认替换记录。密码不会保存。',
+                    ? _l10n.exportPasswordDescription
+                    : _l10n.importPasswordDescription,
               ),
               TextField(
                 controller: _password,
@@ -85,7 +99,7 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
                 obscureText: true,
                 autocorrect: false,
                 enableSuggestions: false,
-                decoration: const InputDecoration(labelText: '密码'),
+                decoration: InputDecoration(labelText: _l10n.password),
                 onSubmitted: exporting ? null : (_) => _submit(),
               ),
               if (exporting)
@@ -94,7 +108,7 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
                   obscureText: true,
                   autocorrect: false,
                   enableSuggestions: false,
-                  decoration: const InputDecoration(labelText: '再次输入密码'),
+                  decoration: InputDecoration(labelText: _l10n.confirmPassword),
                   onSubmitted: (_) => _submit(),
                 ),
               if (_error != null)
@@ -109,11 +123,13 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
         actions: [
           TextButton(
             onPressed: _busy ? null : () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(_l10n.cancel),
           ),
           TextButton(
             onPressed: _busy ? null : _submit,
-            child: Text(exporting ? '确认密码' : '解密备份'),
+            child: Text(
+              exporting ? _l10n.confirmPasswordAction : _l10n.decryptBackup,
+            ),
           ),
         ],
       ),

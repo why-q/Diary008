@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Locale, PlatformDispatcher;
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'app_language.dart';
+import 'app_localizations.dart';
 import 'diagnostics.dart';
 import 'notebook.dart';
 import 'notebook_storage.dart';
@@ -58,10 +61,19 @@ class ReminderService {
   Future<ReminderPreferences> loadPreferences() async =>
       readReminderPreferences(await _preferencesFile());
 
+  Future<Locale> _notificationLocale(Locale? requested) async {
+    if (requested != null) return requested;
+    final language =
+        await (await FileLanguageSettingsStore.inApplicationDocumentsDirectory())
+            .load();
+    return language.locale ?? PlatformDispatcher.instance.locale;
+  }
+
   Future<ReminderSyncResult> updatePreferences(
     Notebook book,
-    ReminderPreferences preferences,
-  ) async {
+    ReminderPreferences preferences, {
+    Locale? locale,
+  }) async {
     // The existing native barrier also quiesces a background rescheduler;
     // otherwise it could reinstall the old mode after this switch completes.
     await beginDestruction();
@@ -72,7 +84,7 @@ class ReminderService {
     } finally {
       await endDestruction();
     }
-    return synchronize(book);
+    return synchronize(book, locale: locale);
   }
 
   Future<void> refreshFromDisk() async {
@@ -119,11 +131,11 @@ class ReminderService {
       .resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin
       >()!;
-  static const _details = NotificationDetails(
+  NotificationDetails _details(AppLocalizations l10n) => NotificationDetails(
     android: AndroidNotificationDetails(
       channelId,
-      '笔记提醒',
-      channelDescription: '按计划或每天固定时间提醒翻阅笔记',
+      l10n.notificationChannelName,
+      channelDescription: l10n.notificationChannelDescription,
       importance: Importance.defaultImportance,
       priority: Priority.defaultPriority,
       visibility: NotificationVisibility.private,
@@ -152,11 +164,12 @@ class ReminderService {
           _receive(response.payload),
     );
     if (initialized != true) throw StateError('通知初始化未完成');
+    final l10n = AppLocalizations.forLocale(PlatformDispatcher.instance.locale);
     await _android.createNotificationChannel(
-      const AndroidNotificationChannel(
+      AndroidNotificationChannel(
         channelId,
-        '断言提醒',
-        description: '按期限和间隔提醒当前卷中尚待履行的断言',
+        l10n.notificationChannelName,
+        description: l10n.notificationChannelDescription,
         importance: Importance.defaultImportance,
       ),
     );
@@ -280,7 +293,7 @@ class ReminderService {
     await runtimeChannel.invokeMethod<void>('endDestruction');
   }
 
-  Future<ReminderSyncResult> synchronize(Notebook book) {
+  Future<ReminderSyncResult> synchronize(Notebook book, {Locale? locale}) {
     if (_suspendedForDestruction) {
       unawaited(
         Diagnostics.record('reminder.sync.failure', 'reason=destruction'),
@@ -291,7 +304,7 @@ class ReminderService {
     }
     final result = _queue.then((_) async {
       try {
-        final applied = await _apply(book);
+        final applied = await _apply(book, locale: locale);
         await Diagnostics.record(
           'reminder.sync.success',
           'enabled=${applied.enabled};scheduled=${applied.scheduledCount}',
@@ -334,8 +347,18 @@ class ReminderService {
     return result;
   }
 
-  Future<ReminderSyncResult> _apply(Notebook book) async {
+  Future<ReminderSyncResult> _apply(Notebook book, {Locale? locale}) async {
     await initialize();
+    final l10n = AppLocalizations.forLocale(await _notificationLocale(locale));
+    await _android.createNotificationChannel(
+      AndroidNotificationChannel(
+        channelId,
+        l10n.notificationChannelName,
+        description: l10n.notificationChannelDescription,
+        importance: Importance.defaultImportance,
+      ),
+    );
+    final details = _details(l10n);
     final preferences = await loadPreferences();
     final enabled = await _notificationsEnabled();
     if (!enabled) {
@@ -380,9 +403,9 @@ class ReminderService {
             due.day == now.day) {
           await _plugin.show(
             id: todayId,
-            title: '家族笔记',
-            body: '到了约定的时间，翻阅笔记，写下今天的记录。',
-            notificationDetails: _details,
+            title: l10n.appTitle,
+            body: l10n.dailyNotificationBody,
+            notificationDetails: details,
             payload: const ReminderTarget(mode: ReminderMode.daily).payload,
           );
         }
@@ -410,6 +433,8 @@ class ReminderService {
             'mode': plan.target.mode.name,
             'at': plan.at.toIso8601String(),
             'timeZone': location.name,
+            // Recreate pending notifications when the app language changes.
+            'language': l10n.locale.languageCode,
           }),
         ),
     };
@@ -436,10 +461,10 @@ class ReminderService {
       await _plugin.zonedSchedule(
         id: item.plan.id,
         scheduledDate: item.plan.at,
-        notificationDetails: _details,
+        notificationDetails: details,
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-        title: '家族笔记',
-        body: '笔记中有待履行的约定，今天记得翻阅。',
+        title: l10n.appTitle,
+        body: l10n.assertionNotificationBody,
         payload: item.payload,
       );
     }

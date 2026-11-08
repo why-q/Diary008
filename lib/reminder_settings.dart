@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_localizations.dart';
 import 'journal_theme.dart';
 import 'reminder_preferences.dart';
 import 'reminder_service.dart';
@@ -35,6 +36,8 @@ class _ReminderSettingsState extends State<ReminderSettings> {
   bool _saving = false;
   bool _saveFailed = false;
 
+  AppLocalizations get _l10n => AppLocalizations.of(context);
+
   @override
   void initState() {
     super.initState();
@@ -48,9 +51,9 @@ class _ReminderSettingsState extends State<ReminderSettings> {
     final selected = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: _hour, minute: _minute),
-      helpText: '选择每日提醒时间',
-      cancelText: '取消',
-      confirmText: '确定',
+      helpText: _l10n.chooseDailyTime,
+      cancelText: _l10n.cancel,
+      confirmText: _l10n.confirm,
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
         child: child!,
@@ -112,19 +115,19 @@ class _ReminderSettingsState extends State<ReminderSettings> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '断言提醒',
+                _l10n.reminderSettings,
                 textAlign: TextAlign.center,
                 style: journalText.copyWith(fontSize: 26),
               ),
               const SizedBox(height: 12),
               Text(
                 widget.hasError
-                    ? '提醒排程未完成，请重新检查；笔记内容已保存。'
+                    ? _l10n.reminderScheduleFailure
                     : widget.result == null
-                    ? '正在检查通知状态。'
+                    ? _l10n.checkingNotificationStatus
                     : widget.result!.enabled
-                    ? '通知已开启，已安排 ${widget.result!.scheduledCount} 次未来提醒。'
-                    : '系统通知尚未开启，或提醒通道已被关闭。',
+                    ? _l10n.scheduledReminders(widget.result!.scheduledCount)
+                    : _l10n.notificationsOff,
                 style: const TextStyle(
                   fontSize: 15,
                   height: 1.7,
@@ -137,12 +140,15 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                 value: ReminderMode.automatic,
                 enabled: !_saving,
                 contentPadding: EdgeInsets.zero,
-                title: Text('自动提醒', style: journalText.copyWith(fontSize: 19)),
+                title: Text(
+                  _l10n.automatic,
+                  style: journalText.copyWith(fontSize: 19),
+                ),
               ),
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(left: 52, bottom: 8),
                 child: Text(
-                  '仅提醒当前卷，按当地上午九点安排；同一天多个条目合并为一次。七天内只在截止当天提醒；更长期限采用第1、3、7、14、30、60、90、180、270天，并保留截止当天；超过30天再加最后一周。卷内最早期限之后不再安排。',
+                  _l10n.automaticDescription,
                   style: TextStyle(fontSize: 14, height: 1.65, color: fadedInk),
                 ),
               ),
@@ -151,13 +157,16 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                 value: ReminderMode.daily,
                 enabled: !_saving,
                 contentPadding: EdgeInsets.zero,
-                title: Text('每日提醒', style: journalText.copyWith(fontSize: 19)),
+                title: Text(
+                  _l10n.daily,
+                  style: journalText.copyWith(fontSize: 19),
+                ),
               ),
               if (_mode == ReminderMode.daily) ...[
-                const Padding(
+                Padding(
                   padding: EdgeInsets.only(left: 52, bottom: 8),
                   child: Text(
-                    '每天按设备当地时间提醒一次，即使当前没有待办记录也会继续提醒。',
+                    _l10n.dailyDescription,
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.65,
@@ -171,19 +180,19 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                     key: const Key('reminder-time'),
                     onPressed: _saving ? null : _chooseTime,
                     icon: const Icon(Icons.schedule),
-                    label: Text('每日提醒时间 · ${_formatClock(_hour, _minute)}'),
+                    label: Text(_l10n.dailyTime(_formatClock(_hour, _minute))),
                   ),
                 ),
               ],
               const SizedBox(height: 8),
-              const Text(
-                '提醒跟随设备当地时间，不补发已过节点。系统省电策略或通知权限可能影响送达，无法保证准点。',
+              Text(
+                _l10n.timezoneNotice,
                 style: TextStyle(fontSize: 14, height: 1.65, color: fadedInk),
               ),
               if (_saveFailed) ...[
                 const SizedBox(height: 8),
-                const Text(
-                  '设置或提醒排程未完成，请重新检查设置后重试。',
+                Text(
+                  _l10n.settingsRetry,
                   style: TextStyle(fontSize: 15, height: 1.6, color: ink),
                 ),
               ],
@@ -194,7 +203,7 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                     child: OutlinedButton(
                       key: const Key('reminder-cancel'),
                       onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('取消'),
+                      child: Text(_l10n.cancel),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -207,7 +216,7 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                               dimension: 18,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Text('保存设置'),
+                          : Text(_l10n.save),
                     ),
                   ),
                 ],
@@ -219,21 +228,21 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                     Navigator.pop(context);
                     widget.onEnable();
                   },
-                  child: const Text('启用通知提醒'),
+                  child: Text(_l10n.enableNotifications),
                 ),
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
                   widget.onCheck();
                 },
-                child: const Text('重新检查提醒'),
+                child: Text(_l10n.recheckReminders),
               ),
               TextButton(
                 onPressed: () {
                   Navigator.pop(context);
                   widget.onSystemSettings();
                 },
-                child: const Text('系统通知设置'),
+                child: Text(_l10n.systemNotificationSettings),
               ),
             ],
           ),

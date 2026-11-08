@@ -23,7 +23,7 @@ void main() {
       expect(await readThemePreferences(file), expected);
       expect(
         await file.readAsString(),
-        '{"mode":"dark","palette":"cyanPaper"}',
+        '{"mode":"dark","palette":"cyanPaper"}\n',
       );
     },
   );
@@ -55,11 +55,9 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         theme: journalThemeData(JournalPalette.antiquePaper, Brightness.light),
-        home: Material(
-          child: ThemeSettings(
-            preferences: const ThemePreferences(),
-            onChanged: (value) => changed = value,
-          ),
+        home: ThemeSettings(
+          preferences: const ThemePreferences(),
+          onChanged: (value) => changed = value,
         ),
       ),
     );

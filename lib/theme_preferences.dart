@@ -70,6 +70,9 @@ Future<void> writeThemePreferences(
   ThemePreferences preferences,
 ) async {
   final temp = File('${file.path}.tmp');
-  await temp.writeAsString(jsonEncode(preferences.toJson()), flush: true);
+  await temp.writeAsString(
+    '${jsonEncode(preferences.toJson())}\n',
+    flush: true,
+  );
   await temp.rename(file.path);
 }

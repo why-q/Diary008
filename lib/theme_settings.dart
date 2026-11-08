@@ -42,6 +42,13 @@ class _ThemeSettingsState extends State<ThemeSettings> {
 
   @override
   Widget build(BuildContext context) {
+    return Material(
+      color: journalThemeOf(context).paper,
+      child: _buildContent(context),
+    );
+  }
+
+  Widget _buildContent(BuildContext context) {
     final colors = journalThemeOf(context);
     return SafeArea(
       child: ConstrainedBox(

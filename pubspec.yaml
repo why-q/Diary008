@@ -41,15 +41,3 @@ flutter:
     - family: CormorantGaramond
       fonts:
         - asset: assets/fonts/CormorantGaramond.ttf
-    - family: NotoSerifSC
-      fonts:
-        - asset: assets/fonts/NotoSerifSC.ttf
-    - family: Literata
-      fonts:
-        - asset: assets/fonts/Literata.ttf
-    - family: NotoSansSC
-      fonts:
-        - asset: assets/fonts/NotoSansSC.ttf
-    - family: Inter
-      fonts:
-        - asset: assets/fonts/Inter.ttf

@@ -28,6 +28,7 @@ import 'data_settings.dart';
 import 'diagnostics.dart';
 import 'theme_preferences.dart';
 import 'theme_settings.dart';
+import 'font_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -91,12 +92,14 @@ class _DiaryAppState extends State<DiaryApp> {
   Future<void> _themeSaveQueue = Future<void>.value();
   int _themeRevision = 0;
   ThemePreferences? _pendingThemePreferences;
+  final _fontPreferenceController = FontPreferenceController();
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadLanguage());
     unawaited(_loadThemePreferences());
+    unawaited(_fontPreferenceController.load());
   }
 
   Future<void> _loadLanguage() async {
@@ -157,56 +160,74 @@ class _DiaryAppState extends State<DiaryApp> {
   }
 
   @override
+  void dispose() {
+    _fontPreferenceController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final mode = switch (_themePreferences.mode) {
       JournalThemeMode.system => ThemeMode.system,
       JournalThemeMode.light => ThemeMode.light,
       JournalThemeMode.dark => ThemeMode.dark,
     };
-    return MaterialApp(
-      onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
-      debugShowCheckedModeBanner: false,
-      locale: _language.locale,
-      supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-      localeResolutionCallback: (locale, supportedLocales) =>
-          locale?.languageCode == 'zh'
-          ? const Locale('zh', 'CN')
-          : const Locale('en'),
-      localizationsDelegates: const [
-        AppLocalizations.delegate,
-        ...GlobalMaterialLocalizations.delegates,
-      ],
-      builder: (context, child) {
-        final brightness = _themePreferences.mode == JournalThemeMode.dark
-            ? Brightness.dark
-            : _themePreferences.mode == JournalThemeMode.light
-            ? Brightness.light
-            : MediaQuery.platformBrightnessOf(context);
-        final colors = JournalTheme.fromPalette(
-          _themePreferences.palette,
-          brightness,
-        );
-        final dark = brightness == Brightness.dark;
-        return AnnotatedRegion<SystemUiOverlayStyle>(
-          value: SystemUiOverlayStyle(
-            statusBarColor: Colors.transparent,
-            statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
-            systemNavigationBarColor: colors.paper,
-            systemNavigationBarIconBrightness: dark
-                ? Brightness.light
-                : Brightness.dark,
-          ),
-          child: child!,
-        );
-      },
-      theme: journalThemeData(_themePreferences.palette, Brightness.light),
-      darkTheme: journalThemeData(_themePreferences.palette, Brightness.dark),
-      themeMode: mode,
-      home: NotebookPage(
-        language: _language,
-        onLanguageChanged: _changeLanguage,
-        themePreferences: _themePreferences,
-        onThemeChanged: _changeThemePreferences,
+    return AnimatedBuilder(
+      animation: _fontPreferenceController,
+      builder: (context, _) => MaterialApp(
+        onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
+        debugShowCheckedModeBanner: false,
+        locale: _language.locale,
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+        localeResolutionCallback: (locale, supportedLocales) =>
+            locale?.languageCode == 'zh'
+            ? const Locale('zh', 'CN')
+            : const Locale('en'),
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          ...GlobalMaterialLocalizations.delegates,
+        ],
+        builder: (context, child) {
+          final brightness = _themePreferences.mode == JournalThemeMode.dark
+              ? Brightness.dark
+              : _themePreferences.mode == JournalThemeMode.light
+              ? Brightness.light
+              : MediaQuery.platformBrightnessOf(context);
+          final colors = JournalTheme.fromPalette(
+            _themePreferences.palette,
+            brightness,
+          );
+          final dark = brightness == Brightness.dark;
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: dark
+                  ? Brightness.light
+                  : Brightness.dark,
+              systemNavigationBarColor: colors.paper,
+              systemNavigationBarIconBrightness: dark
+                  ? Brightness.light
+                  : Brightness.dark,
+            ),
+            child: child!,
+          );
+        },
+        theme: applyFontPreference(
+          journalThemeData(_themePreferences.palette, Brightness.light),
+          _fontPreferenceController.preference,
+        ),
+        darkTheme: applyFontPreference(
+          journalThemeData(_themePreferences.palette, Brightness.dark),
+          _fontPreferenceController.preference,
+        ),
+        themeMode: mode,
+        home: NotebookPage(
+          language: _language,
+          onLanguageChanged: _changeLanguage,
+          themePreferences: _themePreferences,
+          onThemeChanged: _changeThemePreferences,
+          fontPreferenceController: _fontPreferenceController,
+        ),
       ),
     );
   }
@@ -219,12 +240,14 @@ class NotebookPage extends StatefulWidget {
     required this.onLanguageChanged,
     required this.themePreferences,
     required this.onThemeChanged,
+    required this.fontPreferenceController,
   });
 
   final AppLanguage language;
   final Future<void> Function(AppLanguage language) onLanguageChanged;
   final ThemePreferences themePreferences;
   final ValueChanged<ThemePreferences> onThemeChanged;
+  final FontPreferenceController fontPreferenceController;
   @override
   State<NotebookPage> createState() => _NotebookPageState();
 }
@@ -719,6 +742,7 @@ class _NotebookPageState extends State<NotebookPage>
       enableDrag: false,
       builder: (_) => DataSettings(
         onTheme: _showThemeSettings,
+        fontPreferenceController: widget.fontPreferenceController,
         onDestroy: _destroyAllRecords,
         onExport: _exportBackup,
         onImport: _importBackup,
@@ -979,7 +1003,6 @@ class _NotebookPageState extends State<NotebookPage>
                         child: Text(
                           _l10n.sealedNotebook,
                           style: TextStyle(
-                            fontFamily: 'JournalSerif',
                             fontSize: 12,
                             letterSpacing: 2,
                             color: journalThemeOf(context).fadedInk,
@@ -1072,7 +1095,6 @@ class _NotebookPageState extends State<NotebookPage>
                                       'THE FAMILY JOURNAL',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        fontFamily: 'JournalSerif',
                                         fontSize: 13,
                                         letterSpacing: 2.4,
                                         color: journalThemeOf(context).fadedInk,

@@ -1,9 +1,9 @@
 # 家族笔记
 
-Android 专用 Flutter 原型。连续长篇日记排版，纸张底纹、墨色、离线中文手写体和英文古典衬线体。无账号、后端、AI 解析或 Web 目标。
+Android 专用 Flutter 原型。连续长篇日记排版，纸张底纹、墨色与多款中英文排版字体。无账号、后端或 AI 解析；不支持 Web。
 
-> **当前测试状态**（`0.4.0+4`）：本轮 `flutter analyze` 为 0 issues，`flutter test --reporter compact` 的 65 项全部通过；API 30 模拟器已完成 Release 隐私说明／开源许可界面烟测，并确认隐私与字体许可文本在 APK 包内的 SHA-256 与源文件一致。
-> 这不是完整集成测试或公开发布验证；本轮未验证真机／OnePlus、Android 系统备份恢复或公开更新流程。当前 Release 仍由 Android 调试密钥签名，**不可作为公开发布或持续更新包**。
+> **当前集成源码验证**（`0.4.0+4`）：`flutter analyze` 无问题；`flutter test --reporter compact` 的 84 项全部通过。本次集成尚未构建统一 APK，也未对三项功能合并后的 APK 进行模拟器或真机烟测；完整 Android `integration_test`、系统备份恢复及公开更新流程仍未验证。
+> 当前 Release 配置仍使用 Android 调试密钥，**不可作为公开发布或持续更新包**。
 >
 > 先读 [`公开测试与发布说明`](#公开测试与发布说明)、[`PRIVACY.md`](PRIVACY.md) 与 [`发布检查清单`](docs/release-checklist.md)。
 
@@ -105,7 +105,7 @@ flutter build apk --release
 
 当前版本为 `0.4.0+4`。公开更新前，发布负责人须明确签名密钥的长期保管与备份；当前 Release APK 使用开发调试密钥，**不是可持续更新的公开发布签名**。发布后的更新必须保持相同签名身份，Android `versionCode` 每次发布递增；签名身份改变可能要求卸载重装并导致应用私有数据丢失。源码许可与正式发布决策由所有者决定。本仓库说明不授权推送、商店提交或发布。
 
-应用内隐私说明以 [`assets/privacy_notice.txt`](assets/privacy_notice.txt) 为唯一文本来源；字体许可保留在 `assets/fonts/MaShanZheng-OFL.txt` 与 `assets/fonts/CormorantGaramond-OFL.txt`。
+应用内隐私说明以 [`assets/privacy_notice.txt`](assets/privacy_notice.txt) 为唯一文本来源。字体选择独立于语言和主题；Ma Shan Zheng 与 Cormorant Garamond 内置，Noto Serif SC／Literata、Noto Sans SC／Inter 在首次选择时从 HTTPS 字体源下载、校验并缓存，缓存后可离线使用。中文 Noto 字体采用子集文件，缺字时回退到后续字形或系统字体。远程字体源须通过 `DIARY008_FONT_BASE_URL` 构建参数配置；当前未提供 CDN 地址，未配置时两组下载字体会安全提示并保留原选择。六款字体的完整许可文本随包保留在 `assets/fonts/*-OFL.txt`。
 
 ## 验证
 
@@ -117,9 +117,9 @@ flutter test integration_test -d emulator-5554
 
 ### 本轮验证记录
 
-- `flutter analyze`：0 issues；`flutter test --reporter compact`：65 项全部通过。
-- API 30 模拟器上的 Release APK 实际打开了隐私说明与 Flutter 开源许可界面；已比对 APK 内隐私说明及两份字体许可与源文件的 SHA-256。
-- 本轮未运行上方的完整 Android `integration_test` 命令；不代表全功能集成、真机／OnePlus、Android 系统备份恢复或公开更新验证。设备私有数据快照回滚不是 Android 系统备份测试。
+- `flutter analyze`：0 issues；`flutter test --reporter compact`：84 项全部通过。
+- 本次集成已运行 `flutter analyze` 和 `flutter test --reporter compact`；没有构建统一 Release APK，也没有运行上方的完整 Android `integration_test` 命令。
+- 先前 API 30 模拟器上的隐私说明／开源许可烟测属于早期测试 APK，不是本次集成产物的验证。真机／OnePlus、系统备份恢复和公开更新流程也未验证。
 
 ### 历史验证：大量条目滚动性能
 
@@ -188,3 +188,5 @@ flutter drive --profile \
 
 - [Ma Shan Zheng](https://github.com/google/fonts/tree/main/ofl/mashanzheng)：中文毛笔书写风格，许可见 `assets/fonts/MaShanZheng-OFL.txt`。
 - [Cormorant Garamond](https://github.com/google/fonts/tree/main/ofl/cormorantgaramond)：英文古典衬线，许可见 `assets/fonts/CormorantGaramond-OFL.txt`。
+- [Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc)：中文宋体子集；[Literata](https://github.com/google/fonts/tree/main/ofl/literata)：英文书卷衬线；许可分别见 `assets/fonts/NotoSerifSC-OFL.txt` 和 `assets/fonts/Literata-OFL.txt`。
+- [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)：中文黑体子集；[Inter](https://github.com/google/fonts/tree/main/ofl/inter)：英文无衬线；许可分别见 `assets/fonts/NotoSansSC-OFL.txt` 和 `assets/fonts/Inter-OFL.txt`。

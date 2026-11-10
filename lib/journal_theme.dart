@@ -9,12 +9,7 @@ import 'theme_preferences.dart';
 const paper = Color(0xFFF1E8D6);
 const ink = Color(0xFF44382D);
 const fadedInk = Color(0xFF897B67);
-const journalText = TextStyle(
-  fontFamily: 'JournalKai',
-  fontFamilyFallback: ['JournalSerif'],
-  fontSize: 21,
-  height: 1.8,
-);
+const journalText = TextStyle(fontSize: 21, height: 1.8);
 
 class JournalTheme extends ThemeExtension<JournalTheme> {
   const JournalTheme({
@@ -219,25 +214,19 @@ ThemeData journalThemeData(JournalPalette palette, Brightness brightness) {
     brightness: brightness,
     scaffoldBackgroundColor: colors.paper,
     canvasColor: colors.paper,
-    fontFamily: 'JournalKai',
-    fontFamilyFallback: const ['JournalSerif'],
     colorScheme: scheme,
     extensions: [colors],
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(
         foregroundColor: colors.accent,
-        textStyle: const TextStyle(fontFamily: 'JournalKai', fontSize: 19),
+        textStyle: const TextStyle(fontSize: 19),
       ),
     ),
     inputDecorationTheme: const InputDecorationTheme(border: InputBorder.none),
     bottomSheetTheme: BottomSheetThemeData(backgroundColor: colors.paper),
     snackBarTheme: SnackBarThemeData(
       backgroundColor: colors.ink,
-      contentTextStyle: TextStyle(
-        color: colors.paper,
-        fontFamily: 'JournalKai',
-        fontSize: 17,
-      ),
+      contentTextStyle: TextStyle(color: colors.paper, fontSize: 17),
     ),
   );
 }

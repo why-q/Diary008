@@ -414,6 +414,45 @@ class AppLocalizations {
   String get importPasswordDescription => isEnglish
       ? 'You will still confirm replacing records after decryption. The password is not saved.'
       : '解密成功后仍需确认替换记录。密码不会保存。';
+  String get fontSettingTitle => isEnglish ? 'App font' : '应用字体';
+  String get fontSettingStyle => isEnglish ? 'Font style' : '字体风格';
+  String get fontFollowSystem => isEnglish ? 'Follow system' : '跟随系统';
+  String get fontHandwritten => isEnglish ? 'Classic handwritten' : '古朴手写';
+  String get fontBook => isEnglish ? 'Classic book' : '经典书卷';
+  String get fontClean => isEnglish ? 'Clean reading' : '清爽阅读';
+  String get fontFollowSystemDescription =>
+      isEnglish ? 'Use the device default font' : '使用设备的默认字体';
+  String get fontHandwrittenDescription => isEnglish
+      ? 'Ma Shan Zheng · Cormorant Garamond (built in)'
+      : 'Ma Shan Zheng · Cormorant Garamond（内置）';
+  String get fontBookDescription => isEnglish
+      ? 'Noto Serif SC · Literata (downloaded on first selection)'
+      : 'Noto Serif SC · Literata（首次选择时下载）';
+  String get fontCleanDescription => isEnglish
+      ? 'Noto Sans SC · Inter (downloaded on first selection)'
+      : 'Noto Sans SC · Inter（首次选择时下载）';
+  String get fontDownloadPrivacy => isEnglish
+      ? 'Font settings are independent of language and theme. Fonts are applied and saved only after download and verification; missing glyphs fall back to the system font.'
+      : '字体设置独立于语言与主题；下载完成并校验后才应用与保存。未覆盖字形会继续回退到系统字体。';
+  String fontDownloading(String name) =>
+      isEnglish ? 'Downloading and verifying “$name”…' : '正在下载并校验“$name”字体…';
+  String get cancelDownload => isEnglish ? 'Cancel download' : '取消下载';
+  String get retryDownload => isEnglish ? 'Retry' : '重试';
+  String get fontUnavailable => isEnglish
+      ? 'The selected font cache is unavailable. Select it again to download.'
+      : '已选字体缓存不可用；请重新选择并下载字体。';
+  String get fontPreferencesUnavailable => isEnglish
+      ? 'Font preferences or cache could not be read; using the system font for now.'
+      : '字体偏好或缓存无法读取，已暂用系统字体。';
+  String get fontSourceNotConfigured => isEnglish
+      ? 'The font download source is not configured. Wait for a secure HTTPS font source to be provided.'
+      : '字体下载源尚未配置；请等待应用提供安全的 HTTPS 字体源。';
+  String get fontDownloadCancelled => isEnglish
+      ? 'Font download was cancelled; the previous font remains selected. Select it again to retry.'
+      : '字体下载已取消，仍保留原字体设置。可重新选择再试。';
+  String get fontDownloadFailed => isEnglish
+      ? 'Font download, verification, or loading failed; the previous font remains selected. Check the network and retry.'
+      : '字体下载、校验或加载失败，仍保留原字体设置。请检查网络后重试。';
   String get password => isEnglish ? 'Password' : '密码';
   String get confirmPassword => isEnglish ? 'Confirm password' : '再次输入密码';
   String get confirmPasswordAction => isEnglish ? 'Confirm password' : '确认密码';

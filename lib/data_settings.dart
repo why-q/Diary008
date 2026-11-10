@@ -4,6 +4,7 @@ import 'app_language.dart';
 import 'app_localizations.dart';
 import 'diagnostics.dart';
 import 'journal_theme.dart';
+import 'font_preferences.dart';
 
 void _noTheme() {}
 
@@ -11,6 +12,7 @@ class DataSettings extends StatefulWidget {
   const DataSettings({
     super.key,
     this.onTheme = _noTheme,
+    required this.fontPreferenceController,
     required this.onDestroy,
     required this.onExport,
     required this.onImport,
@@ -18,6 +20,7 @@ class DataSettings extends StatefulWidget {
     required this.onLanguageChanged,
   });
   final VoidCallback onTheme;
+  final FontPreferenceController fontPreferenceController;
   final Future<String> Function() onDestroy;
   final Future<String> Function() onExport;
   final Future<String> Function() onImport;
@@ -177,6 +180,8 @@ class _DataSettingsState extends State<DataSettings> {
               onChanged: _changeLanguage,
             ),
             const SizedBox(height: 16),
+            FontPreferenceSettings(controller: widget.fontPreferenceController),
+            const Divider(height: 32),
             TextButton(
               onPressed: _busy ? null : _showPrivacyNotice,
               child: Text(_l10n.privacyNotice),

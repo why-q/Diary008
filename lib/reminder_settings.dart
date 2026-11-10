@@ -128,10 +128,10 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                     : widget.result!.enabled
                     ? _l10n.scheduledReminders(widget.result!.scheduledCount)
                     : _l10n.notificationsOff,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 15,
                   height: 1.7,
-                  color: fadedInk,
+                  color: journalThemeOf(context).fadedInk,
                 ),
               ),
               const SizedBox(height: 12),
@@ -170,7 +170,7 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.65,
-                      color: fadedInk,
+                      color: journalThemeOf(context).fadedInk,
                     ),
                   ),
                 ),

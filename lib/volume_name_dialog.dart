@@ -34,7 +34,7 @@ class _VolumeNameDialogState extends State<VolumeNameDialog> {
     final l10n = AppLocalizations.of(context);
     final fixedTitle = l10n.volumeTitle(widget.volume, '');
     return AlertDialog(
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       scrollable: true,
       title: Text(l10n.newVolumeTitle(fixedTitle, creating)),
       content: Column(

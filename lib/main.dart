@@ -26,6 +26,8 @@ import 'reminder_service.dart';
 import 'reminder_settings.dart';
 import 'data_settings.dart';
 import 'diagnostics.dart';
+import 'theme_preferences.dart';
+import 'theme_settings.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -85,11 +87,16 @@ class DiaryApp extends StatefulWidget {
 class _DiaryAppState extends State<DiaryApp> {
   AppLanguage _language = AppLanguage.system;
   LanguageSettingsStore? _languageStore;
+  ThemePreferences _themePreferences = const ThemePreferences();
+  Future<void> _themeSaveQueue = Future<void>.value();
+  int _themeRevision = 0;
+  ThemePreferences? _pendingThemePreferences;
 
   @override
   void initState() {
     super.initState();
     unawaited(_loadLanguage());
+    unawaited(_loadThemePreferences());
   }
 
   Future<void> _loadLanguage() async {
@@ -107,47 +114,102 @@ class _DiaryAppState extends State<DiaryApp> {
     if (mounted) setState(() => _language = language);
   }
 
+  Future<void> _loadThemePreferences() async {
+    final revision = _themeRevision;
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final preferences = await readThemePreferences(
+        File('${directory.path}/theme_preferences.json'),
+      );
+      if (mounted && revision == _themeRevision) {
+        setState(() => _themePreferences = preferences);
+      }
+    } catch (error, stack) {
+      await Diagnostics.record(
+        'theme.preferences.read.failed',
+        '${error.runtimeType}\n$stack',
+      );
+    }
+  }
+
+  void _changeThemePreferences(ThemePreferences preferences) {
+    if (_themePreferences == preferences) return;
+    _themeRevision++;
+    _pendingThemePreferences = preferences;
+    setState(() => _themePreferences = preferences);
+    _themeSaveQueue = _themeSaveQueue.then((_) async {
+      final toSave = _pendingThemePreferences;
+      _pendingThemePreferences = null;
+      if (toSave == null) return;
+      try {
+        final directory = await getApplicationDocumentsDirectory();
+        await writeThemePreferences(
+          File('${directory.path}/theme_preferences.json'),
+          toSave,
+        );
+      } catch (error, stack) {
+        await Diagnostics.record(
+          'theme.preferences.write.failed',
+          '${error.runtimeType}\n$stack',
+        );
+      }
+    });
+  }
+
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
-    debugShowCheckedModeBanner: false,
-    locale: _language.locale,
-    supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-    localeResolutionCallback: (locale, supportedLocales) =>
-        locale?.languageCode == 'zh'
-        ? const Locale('zh', 'CN')
-        : const Locale('en'),
-    localizationsDelegates: const [
-      AppLocalizations.delegate,
-      ...GlobalMaterialLocalizations.delegates,
-    ],
-    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: paper,
-        systemNavigationBarIconBrightness: Brightness.dark,
+  Widget build(BuildContext context) {
+    final mode = switch (_themePreferences.mode) {
+      JournalThemeMode.system => ThemeMode.system,
+      JournalThemeMode.light => ThemeMode.light,
+      JournalThemeMode.dark => ThemeMode.dark,
+    };
+    return MaterialApp(
+      onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
+      debugShowCheckedModeBanner: false,
+      locale: _language.locale,
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+      localeResolutionCallback: (locale, supportedLocales) =>
+          locale?.languageCode == 'zh'
+          ? const Locale('zh', 'CN')
+          : const Locale('en'),
+      localizationsDelegates: const [
+        AppLocalizations.delegate,
+        ...GlobalMaterialLocalizations.delegates,
+      ],
+      builder: (context, child) {
+        final brightness = _themePreferences.mode == JournalThemeMode.dark
+            ? Brightness.dark
+            : _themePreferences.mode == JournalThemeMode.light
+            ? Brightness.light
+            : MediaQuery.platformBrightnessOf(context);
+        final colors = JournalTheme.fromPalette(
+          _themePreferences.palette,
+          brightness,
+        );
+        final dark = brightness == Brightness.dark;
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle(
+            statusBarColor: Colors.transparent,
+            statusBarIconBrightness: dark ? Brightness.light : Brightness.dark,
+            systemNavigationBarColor: colors.paper,
+            systemNavigationBarIconBrightness: dark
+                ? Brightness.light
+                : Brightness.dark,
+          ),
+          child: child!,
+        );
+      },
+      theme: journalThemeData(_themePreferences.palette, Brightness.light),
+      darkTheme: journalThemeData(_themePreferences.palette, Brightness.dark),
+      themeMode: mode,
+      home: NotebookPage(
+        language: _language,
+        onLanguageChanged: _changeLanguage,
+        themePreferences: _themePreferences,
+        onThemeChanged: _changeThemePreferences,
       ),
-      child: child!,
-    ),
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: paper,
-      fontFamily: 'JournalKai',
-      fontFamilyFallback: const ['JournalSerif'],
-      colorScheme: ColorScheme.fromSeed(seedColor: ink, surface: paper),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: ink,
-          textStyle: const TextStyle(fontFamily: 'JournalKai', fontSize: 19),
-        ),
-      ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: InputBorder.none,
-      ),
-    ),
-    home: NotebookPage(language: _language, onLanguageChanged: _changeLanguage),
-  );
+    );
+  }
 }
 
 class NotebookPage extends StatefulWidget {
@@ -155,10 +217,14 @@ class NotebookPage extends StatefulWidget {
     super.key,
     required this.language,
     required this.onLanguageChanged,
+    required this.themePreferences,
+    required this.onThemeChanged,
   });
 
   final AppLanguage language;
   final Future<void> Function(AppLanguage language) onLanguageChanged;
+  final ThemePreferences themePreferences;
+  final ValueChanged<ThemePreferences> onThemeChanged;
   @override
   State<NotebookPage> createState() => _NotebookPageState();
 }
@@ -289,7 +355,7 @@ class _NotebookPageState extends State<NotebookPage>
     ..showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 17)),
-        backgroundColor: ink,
+        backgroundColor: journalThemeOf(context).ink,
         duration: const Duration(seconds: 4),
       ),
     );
@@ -387,7 +453,7 @@ class _NotebookPageState extends State<NotebookPage>
     if (_busy || await _expire() || !mounted) return;
     final chosen = await showModalBottomSheet<VolumeSelection>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       builder: (_) => VolumePicker(book: _book!),
     );
     if (!mounted || chosen == null || _busy || await _expire() || !mounted) {
@@ -627,7 +693,7 @@ class _NotebookPageState extends State<NotebookPage>
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       isScrollControlled: true,
       builder: (_) => ReminderSettings(
         result: _reminderResult,
@@ -644,7 +710,7 @@ class _NotebookPageState extends State<NotebookPage>
   void _showDataSettings() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       isScrollControlled: true,
       isDismissible: true,
       constraints: BoxConstraints(
@@ -652,11 +718,24 @@ class _NotebookPageState extends State<NotebookPage>
       ),
       enableDrag: false,
       builder: (_) => DataSettings(
+        onTheme: _showThemeSettings,
         onDestroy: _destroyAllRecords,
         onExport: _exportBackup,
         onImport: _importBackup,
         language: widget.language,
         onLanguageChanged: widget.onLanguageChanged,
+      ),
+    );
+  }
+
+  void _showThemeSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: journalThemeOf(context).paper,
+      isScrollControlled: true,
+      builder: (_) => ThemeSettings(
+        preferences: widget.themePreferences,
+        onChanged: widget.onThemeChanged,
       ),
     );
   }
@@ -669,7 +748,7 @@ class _NotebookPageState extends State<NotebookPage>
     final encrypted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: paper,
+        backgroundColor: journalThemeOf(context).paper,
         title: Text(_l10n.backupChoiceTitle),
         content: Text(_l10n.backupChoiceContent),
         actions: [
@@ -735,7 +814,7 @@ class _NotebookPageState extends State<NotebookPage>
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: paper,
+          backgroundColor: journalThemeOf(context).paper,
           title: Text(_l10n.replaceBackupTitle(backup.archives.length)),
           content: Text(
             _l10n.replaceBackupContent(backup.archives.length, count),
@@ -899,11 +978,11 @@ class _NotebookPageState extends State<NotebookPage>
                       Expanded(
                         child: Text(
                           _l10n.sealedNotebook,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'JournalSerif',
                             fontSize: 12,
                             letterSpacing: 2,
-                            color: fadedInk,
+                            color: journalThemeOf(context).fadedInk,
                           ),
                         ),
                       ),
@@ -918,9 +997,9 @@ class _NotebookPageState extends State<NotebookPage>
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 15,
-                                color: fadedInk,
+                                color: journalThemeOf(context).fadedInk,
                               ),
                             ),
                           ),
@@ -929,7 +1008,10 @@ class _NotebookPageState extends State<NotebookPage>
                         onPressed: _showDataSettings,
                         child: Text(
                           _l10n.settings,
-                          style: TextStyle(fontSize: 15, color: fadedInk),
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: journalThemeOf(context).fadedInk,
+                          ),
                         ),
                       ),
                     ],
@@ -943,7 +1025,12 @@ class _NotebookPageState extends State<NotebookPage>
                             children: [
                               Padding(
                                 padding: const EdgeInsets.all(24),
-                                child: Text(_loadError!, style: journalText),
+                                child: Text(
+                                  _loadError!,
+                                  style: journalText.copyWith(
+                                    color: journalThemeOf(context).ink,
+                                  ),
+                                ),
                               ),
                               TextButton(
                                 onPressed: _load,
@@ -953,8 +1040,10 @@ class _NotebookPageState extends State<NotebookPage>
                           ),
                         )
                       : _book == null
-                      ? const Center(
-                          child: CircularProgressIndicator(color: fadedInk),
+                      ? Center(
+                          child: CircularProgressIndicator(
+                            color: journalThemeOf(context).fadedInk,
+                          ),
                         )
                       : CustomScrollView(
                           controller: _scrollController,
@@ -975,7 +1064,7 @@ class _NotebookPageState extends State<NotebookPage>
                                       style: TextStyle(
                                         fontSize: 34,
                                         letterSpacing: 8,
-                                        color: ink,
+                                        color: journalThemeOf(context).ink,
                                       ),
                                     ),
                                     const SizedBox(height: 7),
@@ -986,7 +1075,7 @@ class _NotebookPageState extends State<NotebookPage>
                                         fontFamily: 'JournalSerif',
                                         fontSize: 13,
                                         letterSpacing: 2.4,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                     const SizedBox(height: 14),
@@ -1017,9 +1106,10 @@ class _NotebookPageState extends State<NotebookPage>
                                             ),
                                             child: Text(
                                               _filterName(_filter),
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 14,
-                                                color: fadedInk,
+                                                color: journalThemeOf(context)
+                                                    .fadedInk,
                                               ),
                                             ),
                                           ),
@@ -1048,9 +1138,10 @@ class _NotebookPageState extends State<NotebookPage>
                                                       NotebookSortOrder.writing
                                                   ? _l10n.writingOrder
                                                   : _l10n.dueDateOrder,
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 14,
-                                                color: fadedInk,
+                                                color: journalThemeOf(context)
+                                                    .fadedInk,
                                               ),
                                             ),
                                           ),
@@ -1063,7 +1154,8 @@ class _NotebookPageState extends State<NotebookPage>
                                         _l10n.readOnlyArchived,
                                         style: TextStyle(
                                           fontSize: 18,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
@@ -1078,10 +1170,11 @@ class _NotebookPageState extends State<NotebookPage>
                                                     .toLocal(),
                                                 archive.archivedAt.toLocal(),
                                               ),
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 14,
                                           height: 1.8,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ],
@@ -1100,7 +1193,8 @@ class _NotebookPageState extends State<NotebookPage>
                                               : _l10n.noMatchingRecords,
                                           textAlign: TextAlign.center,
                                           style: journalText.copyWith(
-                                            color: fadedInk,
+                                            color: journalThemeOf(context)
+                                                .fadedInk,
                                             height: 2.2,
                                           ),
                                         ),
@@ -1164,10 +1258,10 @@ class _NotebookPageState extends State<NotebookPage>
                                           ? _l10n.fulfillOrRevise
                                           : _l10n.archivedReadOnlyHint,
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 13,
                                         height: 1.8,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                     if (archive == null &&
@@ -1181,7 +1275,8 @@ class _NotebookPageState extends State<NotebookPage>
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
                                           fontSize: 13,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ],
@@ -1203,9 +1298,10 @@ class _NotebookPageState extends State<NotebookPage>
                                                       '09:00',
                                                     )
                                             : _l10n.enableReminders,
-                                        style: const TextStyle(
+                                        style: TextStyle(
                                           fontSize: 14,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ),

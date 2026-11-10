@@ -79,7 +79,7 @@ class _BackupPasswordDialogState extends State<_BackupPasswordDialog> {
     return PopScope(
       canPop: !_busy,
       child: AlertDialog(
-        backgroundColor: paper,
+        backgroundColor: journalThemeOf(context).paper,
         title: Text(
           exporting ? _l10n.setBackupPassword : _l10n.enterBackupPassword,
         ),

@@ -5,15 +5,19 @@ import 'app_localizations.dart';
 import 'diagnostics.dart';
 import 'journal_theme.dart';
 
+void _noTheme() {}
+
 class DataSettings extends StatefulWidget {
   const DataSettings({
     super.key,
+    this.onTheme = _noTheme,
     required this.onDestroy,
     required this.onExport,
     required this.onImport,
     required this.language,
     required this.onLanguageChanged,
   });
+  final VoidCallback onTheme;
   final Future<String> Function() onDestroy;
   final Future<String> Function() onExport;
   final Future<String> Function() onImport;
@@ -51,7 +55,7 @@ class _DataSettingsState extends State<DataSettings> {
       await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: paper,
+          backgroundColor: journalThemeOf(context).paper,
           title: Text(title),
           content: Text(explanation),
           actions: [
@@ -83,7 +87,7 @@ class _DataSettingsState extends State<DataSettings> {
     await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: paper,
+        backgroundColor: journalThemeOf(context).paper,
         title: Text(title),
         content: SingleChildScrollView(child: Text(body)),
         actions: [
@@ -131,8 +135,25 @@ class _DataSettingsState extends State<DataSettings> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
+              _l10n.settings,
+              style: TextStyle(
+                fontSize: 25,
+                color: journalThemeOf(context).ink,
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextButton(
+              onPressed: _busy ? null : widget.onTheme,
+              child: Text(_l10n.appearance),
+            ),
+            const Divider(),
+            const SizedBox(height: 8),
+            Text(
               _l10n.dataDiagnostics,
-              style: const TextStyle(fontSize: 25, color: ink),
+              style: TextStyle(
+                fontSize: 20,
+                color: journalThemeOf(context).ink,
+              ),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<AppLanguage>(
@@ -240,7 +261,7 @@ class _DataSettingsState extends State<DataSettings> {
                 child: Text(
                   _message!,
                   semanticsLabel: _message,
-                  style: const TextStyle(color: ink),
+                  style: TextStyle(color: journalThemeOf(context).ink),
                 ),
               ),
             TextButton(

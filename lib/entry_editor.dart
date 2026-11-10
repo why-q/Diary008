@@ -94,6 +94,7 @@ class _EntryEditorState extends State<EntryEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = journalThemeOf(context);
     final now = DateTime.now();
     final choices = <String, DateTime>{
       _l10n.inThreeDays: dateOnly(now.add(const Duration(days: 3))),
@@ -136,7 +137,7 @@ class _EntryEditorState extends State<EntryEditor> {
                         SelectableText(
                           widget.original!.text,
                           style: journalText.copyWith(
-                            color: fadedInk,
+                            color: colors.fadedInk,
                             fontSize: 17,
                           ),
                         ),
@@ -171,7 +172,7 @@ class _EntryEditorState extends State<EntryEditor> {
                               ? _l10n.assertionHint
                               : _l10n.revisionHint,
                           hintStyle: journalText.copyWith(
-                            color: fadedInk.withValues(alpha: .65),
+                            color: colors.fadedInk.withValues(alpha: .65),
                           ),
                         ),
                       ),
@@ -212,7 +213,10 @@ class _EntryEditorState extends State<EntryEditor> {
                         Text(
                           _l10n.dateDeadlineHint,
                           textAlign: TextAlign.right,
-                          style: TextStyle(color: fadedInk, fontSize: 13),
+                          style: TextStyle(
+                            color: colors.fadedInk,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
                       if (_error != null)
@@ -220,8 +224,8 @@ class _EntryEditorState extends State<EntryEditor> {
                           padding: const EdgeInsets.only(top: 16),
                           child: Text(
                             _error!,
-                            style: const TextStyle(
-                              color: Color(0xFF8B493F),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
                               fontSize: 16,
                             ),
                           ),
@@ -240,7 +244,9 @@ class _EntryEditorState extends State<EntryEditor> {
   Widget _mode(String label, bool value) => TextButton(
     onPressed: () => setState(() => _explanation = value),
     style: TextButton.styleFrom(
-      foregroundColor: _explanation == value ? ink : fadedInk,
+      foregroundColor: _explanation == value
+          ? journalThemeOf(context).ink
+          : journalThemeOf(context).fadedInk,
     ),
     child: Text(
       label,

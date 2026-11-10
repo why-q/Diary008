@@ -25,6 +25,26 @@ class AppLocalizations {
   String get sealedNotebook =>
       isEnglish ? 'THE SEALED NOTEBOOK' : 'THE SEALED NOTEBOOK';
   String get settings => isEnglish ? 'Settings' : '设置';
+  String get appearance => isEnglish ? 'Appearance' : '外观设置';
+  String get appearanceDescription => isEnglish
+      ? 'Changes apply immediately. Paper palettes adapt to light and dark mode.'
+      : '选择后立即应用并保存。纸张配色会同时适配浅色与深色模式。';
+  String get displayMode => isEnglish ? 'Display mode' : '显示模式';
+  String get themeSystem => isEnglish ? 'Follow system' : '跟随系统';
+  String get themeSystemDescription =>
+      isEnglish ? 'Use the device current appearance setting' : '使用设备当前的明暗设置';
+  String get themeLight => isEnglish ? 'Light' : '浅色';
+  String get themeDark => isEnglish ? 'Dark' : '深色';
+  String get paperPalette => isEnglish ? 'Paper palette' : '纸张配色';
+  String get antiquePaper => isEnglish ? 'Antique paper' : '古纸';
+  String get antiquePaperDescription =>
+      isEnglish ? 'Warm aged paper and brown ink' : '温暖的旧纸与棕色墨迹';
+  String get plainWhite => isEnglish ? 'Plain white' : '素白';
+  String get plainWhiteDescription =>
+      isEnglish ? 'Clean white paper and blue-gray ink' : '清爽的白纸与蓝灰墨迹';
+  String get cyanPaper => isEnglish ? 'Cyan paper' : '青笺';
+  String get cyanPaperDescription =>
+      isEnglish ? 'Pale cyan paper and deep teal ink' : '淡青笺纸与深青墨迹';
   String get reload => isEnglish ? 'Reload' : '重新读取';
   String get loading => isEnglish ? 'Loading notebook...' : '正在读取笔记...';
   String get filterRecords => isEnglish ? 'Filter records' : '筛选记录';

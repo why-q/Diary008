@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'app_language.dart';
+import 'app_localizations.dart';
 import 'diagnostics.dart';
 import 'journal_theme.dart';
 
@@ -9,10 +11,14 @@ class DataSettings extends StatefulWidget {
     required this.onDestroy,
     required this.onExport,
     required this.onImport,
+    required this.language,
+    required this.onLanguageChanged,
   });
   final Future<String> Function() onDestroy;
   final Future<String> Function() onExport;
   final Future<String> Function() onImport;
+  final AppLanguage language;
+  final Future<void> Function(AppLanguage language) onLanguageChanged;
 
   @override
   State<DataSettings> createState() => _DataSettingsState();
@@ -21,6 +27,21 @@ class DataSettings extends StatefulWidget {
 class _DataSettingsState extends State<DataSettings> {
   bool _busy = false;
   String? _message;
+  late AppLanguage _language;
+
+  @override
+  void initState() {
+    super.initState();
+    _language = widget.language;
+  }
+
+  AppLocalizations get _l10n => AppLocalizations.of(context);
+
+  Future<void> _changeLanguage(AppLanguage? language) async {
+    if (language == null || _busy) return;
+    setState(() => _language = language);
+    await widget.onLanguageChanged(language);
+  }
 
   Future<bool> _confirm(
     String title,
@@ -36,7 +57,7 @@ class _DataSettingsState extends State<DataSettings> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: Text(_l10n.cancel),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
@@ -48,11 +69,16 @@ class _DataSettingsState extends State<DataSettings> {
       false;
 
   Future<void> _showPrivacyNotice() async {
-    final notice = await DefaultAssetBundle.of(context)
-        .loadString('assets/privacy_notice.txt');
+    final notice = await DefaultAssetBundle.of(context).loadString(
+      _l10n.isEnglish
+          ? 'assets/privacy_notice_en.txt'
+          : 'assets/privacy_notice.txt',
+    );
     if (!mounted) return;
     final separator = notice.indexOf('\n\n');
-    final title = separator < 0 ? '隐私说明' : notice.substring(0, separator);
+    final title = separator < 0
+        ? _l10n.privacyTitleFallback
+        : notice.substring(0, separator);
     final body = separator < 0 ? notice : notice.substring(separator + 2);
     await showDialog<void>(
       context: context,
@@ -63,7 +89,7 @@ class _DataSettingsState extends State<DataSettings> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
+            child: Text(_l10n.close),
           ),
         ],
       ),
@@ -80,13 +106,15 @@ class _DataSettingsState extends State<DataSettings> {
       final message = await action();
       if (mounted) setState(() => _message = message);
     } on FormatException catch (error) {
-      if (mounted) setState(() => _message = error.message);
+      if (mounted) {
+        setState(() => _message = _l10n.localizeBackupError(error.message));
+      }
     } catch (error, stack) {
       await Diagnostics.record(
         'settings.operation.failed',
         '${error.runtimeType}\n$stack',
       );
-      if (mounted) setState(() => _message = '操作未完成，请重试。');
+      if (mounted) setState(() => _message = _l10n.operationFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -102,77 +130,98 @@ class _DataSettingsState extends State<DataSettings> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text('数据与诊断', style: TextStyle(fontSize: 25, color: ink)),
+            Text(
+              _l10n.dataDiagnostics,
+              style: const TextStyle(fontSize: 25, color: ink),
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<AppLanguage>(
+              key: ValueKey(_language),
+              initialValue: _language,
+              decoration: InputDecoration(labelText: _l10n.language),
+              items: [
+                DropdownMenuItem(
+                  value: AppLanguage.system,
+                  child: Text(_l10n.systemLanguage),
+                ),
+                DropdownMenuItem(
+                  value: AppLanguage.simplifiedChinese,
+                  child: Text(_l10n.simplifiedChinese),
+                ),
+                DropdownMenuItem(
+                  value: AppLanguage.english,
+                  child: Text(_l10n.english),
+                ),
+              ],
+              onChanged: _changeLanguage,
+            ),
             const SizedBox(height: 16),
             TextButton(
               onPressed: _busy ? null : _showPrivacyNotice,
-              child: const Text('隐私说明'),
+              child: Text(_l10n.privacyNotice),
             ),
             TextButton(
               onPressed: _busy
                   ? null
                   : () => showLicensePage(
                       context: context,
-                      applicationName: '家族笔记',
+                      applicationName: _l10n.appTitle,
                     ),
-              child: const Text('开源许可'),
+              child: Text(_l10n.openSourceLicenses),
             ),
             const SizedBox(height: 16),
-            const Text(
-              '备份包含当前卷、全部历史卷、卷名、正文、解释、修订记录和排序偏好，不包含诊断日志。导出时可选择明文或密码加密；忘记密码无法恢复加密备份。选择云盘时文件会交由该提供方处理。',
-            ),
+            Text(_l10n.backupDescription),
             TextButton(
               onPressed: _busy ? null : () => _run(widget.onExport),
-              child: const Text('导出备份'),
+              child: Text(_l10n.exportBackup),
             ),
             TextButton(
               onPressed: _busy ? null : () => _run(widget.onImport),
-              child: const Text('导入备份'),
+              child: Text(_l10n.importBackup),
             ),
-            const Text('导入将完整替换现有所有卷和记录，不进行合并。建议先导出当前数据；选择文件后仍需确认才能覆盖。'),
+            Text(_l10n.importDescription),
             const Divider(),
             const SizedBox(height: 16),
-            const Text('日志仅保存在本机，不记录正文或卷名，不自动上传。容量达到上限后会覆盖最早的日志。'),
+            Text(_l10n.diagnosticsDescription),
             TextButton(
               onPressed: _busy
                   ? null
                   : () => _run(
-                      () async =>
-                          await Diagnostics.export() ? '日志已导出。' : '已取消导出。',
+                      () async => await Diagnostics.export()
+                          ? _l10n.diagnosticsExported
+                          : _l10n.exportCancelledShort,
                     ),
-              child: const Text('导出日志'),
+              child: Text(_l10n.exportDiagnostics),
             ),
             TextButton(
               onPressed: _busy
                   ? null
                   : () async {
                       if (!await _confirm(
-                            '清空日志？',
-                            '删除本机诊断日志，不影响笔记，也不会删除已导出的文件。',
-                            '确认清空日志',
+                            _l10n.clearDiagnosticsTitle,
+                            _l10n.clearDiagnosticsContent,
+                            _l10n.confirmClearDiagnostics,
                           ) ||
                           !mounted) {
                         return;
                       }
                       await _run(() async {
                         await Diagnostics.clear();
-                        return '日志已清空；之后的操作会继续记录。';
+                        return _l10n.diagnosticsCleared;
                       });
                     },
-              child: const Text('清空日志'),
+              child: Text(_l10n.confirmClearDiagnostics),
             ),
             const Divider(),
-            const Text(
-              '销毁后，当前卷、全部历史卷、断言、解释和修订记录均不可恢复。诊断日志保留，已导出的文件不受影响。这不是闪存安全擦除。',
-            ),
+            Text(_l10n.destroyDescription),
             TextButton(
               onPressed: _busy
                   ? null
                   : () async {
                       if (!await _confirm(
-                            '销毁所有记录？',
-                            '所有卷册和记录将永久删除，并清除已有通知和条目自动提醒。每日写作提醒设置保留，空白卷也会继续提醒。此操作不可撤销，诊断日志会保留。',
-                            '确认销毁记录',
+                            _l10n.destroyTitle,
+                            _l10n.destroyContent,
+                            _l10n.confirmDestroy,
                           ) ||
                           !mounted) {
                         return;
@@ -182,7 +231,7 @@ class _DataSettingsState extends State<DataSettings> {
               style: TextButton.styleFrom(
                 foregroundColor: Theme.of(context).colorScheme.error,
               ),
-              child: const Text('销毁所有记录'),
+              child: Text(_l10n.confirmDestroy),
             ),
             if (_busy) const Center(child: CircularProgressIndicator()),
             if (_message != null)
@@ -196,7 +245,7 @@ class _DataSettingsState extends State<DataSettings> {
               ),
             TextButton(
               onPressed: _busy ? null : () => Navigator.pop(context),
-              child: const Text('关闭'),
+              child: Text(_l10n.close),
             ),
           ],
         ),

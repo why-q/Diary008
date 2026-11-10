@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_localizations.dart';
 import 'journal_theme.dart';
 import 'notebook.dart';
 
@@ -20,111 +21,126 @@ class VolumePicker extends StatelessWidget {
   final Notebook book;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-    child: SizedBox(
-      height: MediaQuery.sizeOf(context).height * .65,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(
-              '翻阅卷册',
-              textAlign: TextAlign.center,
-              style: journalText.copyWith(fontSize: 26),
-            ),
-            const SizedBox(height: 18),
-            Expanded(
-              child: ListView(
-                children: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(
-                      context,
-                      VolumeSelection.open(book.volume),
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .65,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                l10n.volumePickerTitle,
+                textAlign: TextAlign.center,
+                style: journalText.copyWith(fontSize: 26),
+              ),
+              const SizedBox(height: 18),
+              Expanded(
+                child: ListView(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(
+                        context,
+                        VolumeSelection.open(book.volume),
+                      ),
+                      child: Text(
+                        l10n.writingVolume(
+                          l10n.volumeTitle(book.volume, book.volumeName),
+                        ),
+                      ),
                     ),
-                    child: Text(
-                      '${journalVolumeTitle(book.volume, book.volumeName)} · 正在书写',
-                    ),
-                  ),
-                  ...book.archives.reversed.map(
-                    (archive) => Row(
-                      children: [
-                        Expanded(
-                          child: TextButton(
-                            onPressed: () => Navigator.pop(
-                              context,
-                              VolumeSelection.open(archive.volume),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: Column(
-                                children: [
-                                  Text(
-                                    '${journalVolumeTitle(archive.volume, archive.volumeName)} · 已封存',
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    journalDate(archive.archivedAt.toLocal()),
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: fadedInk,
+                    ...book.archives.reversed.map(
+                      (archive) => Row(
+                        children: [
+                          Expanded(
+                            child: TextButton(
+                              onPressed: () => Navigator.pop(
+                                context,
+                                VolumeSelection.open(archive.volume),
+                              ),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 8,
+                                ),
+                                child: Column(
+                                  children: [
+                                    Text(
+                                      l10n.archivedVolume(
+                                        l10n.volumeTitle(
+                                          archive.volume,
+                                          archive.volumeName,
+                                        ),
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      l10n.dateFormat(
+                                        archive.archivedAt.toLocal(),
+                                      ),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: fadedInk,
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                        TextButton(
-                          onPressed: () =>
-                              _confirmDeleteArchive(context, archive),
-                          child: const Text('删除'),
-                        ),
-                      ],
+                          TextButton(
+                            onPressed: () =>
+                                _confirmDeleteArchive(context, archive),
+                            child: Text(l10n.delete),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.pop(context, const VolumeSelection.rename()),
-              child: const Text('修改当前卷名'),
-            ),
-            TextButton(
-              onPressed: () =>
-                  Navigator.pop(context, const VolumeSelection.create()),
-              child: const Text('新建一卷'),
-            ),
-          ],
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(context, const VolumeSelection.rename()),
+                child: Text(l10n.renameCurrentVolume),
+              ),
+              TextButton(
+                onPressed: () =>
+                    Navigator.pop(context, const VolumeSelection.create()),
+                child: Text(l10n.createVolume),
+              ),
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 Future<void> _confirmDeleteArchive(
   BuildContext sheetContext,
   NotebookArchive archive,
 ) async {
-  final title = journalVolumeTitle(archive.volume, archive.volumeName);
+  final l10n = AppLocalizations.of(sheetContext);
+  final title = l10n.volumeTitle(archive.volume, archive.volumeName);
   final confirmed = await showDialog<bool>(
     context: sheetContext,
     builder: (context) => AlertDialog(
       backgroundColor: paper,
-      title: const Text('删除封存卷'),
+      title: Text(l10n.deleteArchivedTitle),
       content: Text(
-        '$title中的记录将永久删除，无法恢复。其后各卷的卷号会依次前移。',
+        l10n.deleteArchivedContent(title),
         style: const TextStyle(fontSize: 16, height: 1.7),
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
-          child: const Text('取消'),
+          child: Text(l10n.cancel),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
-          child: const Text('删除'),
+          child: Text(l10n.delete),
         ),
       ],
     ),

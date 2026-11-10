@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
+import 'app_localizations.dart';
 import 'journal_theme.dart';
 import 'notebook.dart';
 
@@ -46,10 +47,13 @@ class _JournalParagraphState extends State<JournalParagraph> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('正文已复制。')));
+      ..showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).copiedBody)),
+      );
   }
 
   Future<void> _showActions() async {
+    final l10n = AppLocalizations.of(context);
     final copyRequested = await showModalBottomSheet<bool>(
       context: context,
       backgroundColor: paper,
@@ -58,18 +62,21 @@ class _JournalParagraphState extends State<JournalParagraph> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Text('条目操作', style: TextStyle(fontSize: 25, color: ink)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Text(
+                l10n.entryActions,
+                style: const TextStyle(fontSize: 25, color: ink),
+              ),
             ),
             ListTile(
               leading: const Icon(Icons.content_copy, color: fadedInk),
-              title: const Text('复制正文'),
+              title: Text(l10n.copyBody),
               onTap: () => Navigator.pop(context, true),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: Text(l10n.cancel),
             ),
           ],
         ),
@@ -107,11 +114,12 @@ class _JournalParagraphState extends State<JournalParagraph> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(
-                      journalDate(entry.due ?? entry.createdOn),
+                      AppLocalizations.of(context)
+                          .dateFormat((entry.due ?? entry.createdOn).toLocal()),
                       style: const TextStyle(fontSize: 14, color: fadedInk),
                     ),
                     IconButton(
-                      tooltip: '复制正文',
+                      tooltip: AppLocalizations.of(context).copyBody,
                       visualDensity: VisualDensity.compact,
                       onPressed: _copyBody,
                       icon: const Icon(Icons.content_copy, size: 16),
@@ -137,11 +145,15 @@ class _JournalParagraphState extends State<JournalParagraph> {
       child: Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: Semantics(
-          label: _pending ? '可向左滑动确认履行，向右滑动修订' : null,
+          label: _pending ? AppLocalizations.of(context).canSwipe : null,
           customSemanticsActions: _pending
               ? {
-                  const CustomSemanticsAction(label: '确认履行'): widget.onFulfill,
-                  const CustomSemanticsAction(label: '修订'): widget.onRevise,
+                  CustomSemanticsAction(
+                    label: AppLocalizations.of(context).confirmAction,
+                  ): widget.onFulfill,
+                  CustomSemanticsAction(
+                    label: AppLocalizations.of(context).reviseAction,
+                  ): widget.onRevise,
                 }
               : null,
           child: GestureDetector(
@@ -183,8 +195,10 @@ class _JournalParagraphState extends State<JournalParagraph> {
                             width: 108,
                             child: Text(
                               _offset < 0
-                                  ? '${reached ? '松手' : '继续左滑'}\n确认履行'
-                                  : '${reached ? '松手' : '继续右滑'}\n留下修订',
+                                  ? AppLocalizations.of(context)
+                                        .swipeAction(true, reached)
+                                  : AppLocalizations.of(context)
+                                        .swipeAction(false, reached),
                               textAlign: TextAlign.center,
                               style: journalText.copyWith(
                                 fontSize: 17,

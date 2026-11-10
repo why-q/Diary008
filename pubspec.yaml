@@ -29,6 +29,7 @@ flutter:
     - assets/fonts/MaShanZheng-OFL.txt
     - assets/fonts/CormorantGaramond-OFL.txt
     - assets/privacy_notice.txt
+    - assets/privacy_notice_en.txt
   fonts:
     - family: JournalKai
       fonts:

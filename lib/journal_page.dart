@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
+import 'app_localizations.dart';
 import 'journal_theme.dart';
 import 'notebook.dart';
 
@@ -46,30 +47,42 @@ class _JournalParagraphState extends State<JournalParagraph> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(const SnackBar(content: Text('正文已复制。')));
+      ..showSnackBar(
+        SnackBar(content: Text(AppLocalizations.of(context).copiedBody)),
+      );
   }
 
   Future<void> _showActions() async {
+    final l10n = AppLocalizations.of(context);
     final copyRequested = await showModalBottomSheet<bool>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       builder: (context) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Text('条目操作', style: TextStyle(fontSize: 25, color: ink)),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
+              child: Text(
+                l10n.entryActions,
+                style: TextStyle(
+                  fontSize: 25,
+                  color: journalThemeOf(context).ink,
+                ),
+              ),
             ),
             ListTile(
-              leading: const Icon(Icons.content_copy, color: fadedInk),
-              title: const Text('复制正文'),
+              leading: Icon(
+                Icons.content_copy,
+                color: journalThemeOf(context).fadedInk,
+              ),
+              title: Text(l10n.copyBody),
               onTap: () => Navigator.pop(context, true),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('取消'),
+              child: Text(l10n.cancel),
             ),
           ],
         ),
@@ -81,6 +94,7 @@ class _JournalParagraphState extends State<JournalParagraph> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = journalThemeOf(context);
     final entry = widget.entry;
     final reached = _offset.abs() >= threshold;
     final content = Padding(
@@ -91,7 +105,9 @@ class _JournalParagraphState extends State<JournalParagraph> {
           Text(
             entry.text,
             style: journalText.copyWith(
-              color: entry.status == EntryStatus.revised ? fadedInk : ink,
+              color: entry.status == EntryStatus.revised
+                  ? colors.fadedInk
+                  : colors.ink,
               decoration: entry.status == EntryStatus.revised
                   ? TextDecoration.lineThrough
                   : null,
@@ -107,11 +123,15 @@ class _JournalParagraphState extends State<JournalParagraph> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(
-                      journalDate(entry.due ?? entry.createdOn),
-                      style: const TextStyle(fontSize: 14, color: fadedInk),
+                      AppLocalizations.of(context)
+                          .dateFormat((entry.due ?? entry.createdOn).toLocal()),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: journalThemeOf(context).fadedInk,
+                      ),
                     ),
                     IconButton(
-                      tooltip: '复制正文',
+                      tooltip: AppLocalizations.of(context).copyBody,
                       visualDensity: VisualDensity.compact,
                       onPressed: _copyBody,
                       icon: const Icon(Icons.content_copy, size: 16),
@@ -123,7 +143,10 @@ class _JournalParagraphState extends State<JournalParagraph> {
                   Text(
                     widget.annotation!,
                     textAlign: TextAlign.right,
-                    style: const TextStyle(fontSize: 13, color: fadedInk),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: journalThemeOf(context).fadedInk,
+                    ),
                   ),
                 ],
               ],
@@ -137,11 +160,15 @@ class _JournalParagraphState extends State<JournalParagraph> {
       child: Padding(
         padding: const EdgeInsets.only(bottom: 14),
         child: Semantics(
-          label: _pending ? '可向左滑动确认履行，向右滑动修订' : null,
+          label: _pending ? AppLocalizations.of(context).canSwipe : null,
           customSemanticsActions: _pending
               ? {
-                  const CustomSemanticsAction(label: '确认履行'): widget.onFulfill,
-                  const CustomSemanticsAction(label: '修订'): widget.onRevise,
+                  CustomSemanticsAction(
+                    label: AppLocalizations.of(context).confirmAction,
+                  ): widget.onFulfill,
+                  CustomSemanticsAction(
+                    label: AppLocalizations.of(context).reviseAction,
+                  ): widget.onRevise,
                 }
               : null,
           child: GestureDetector(
@@ -173,8 +200,8 @@ class _JournalParagraphState extends State<JournalParagraph> {
                     Positioned.fill(
                       child: ColoredBox(
                         color: _offset < 0
-                            ? const Color(0xFF8B7356)
-                            : const Color(0xFF776D5A),
+                            ? colors.swipePositive
+                            : colors.swipeNegative,
                         child: Align(
                           alignment: _offset < 0
                               ? Alignment.centerRight
@@ -183,12 +210,14 @@ class _JournalParagraphState extends State<JournalParagraph> {
                             width: 108,
                             child: Text(
                               _offset < 0
-                                  ? '${reached ? '松手' : '继续左滑'}\n确认履行'
-                                  : '${reached ? '松手' : '继续右滑'}\n留下修订',
+                                  ? AppLocalizations.of(context)
+                                        .swipeAction(true, reached)
+                                  : AppLocalizations.of(context)
+                                        .swipeAction(false, reached),
                               textAlign: TextAlign.center,
                               style: journalText.copyWith(
                                 fontSize: 17,
-                                color: paper,
+                                color: colors.paper,
                               ),
                             ),
                           ),
@@ -201,7 +230,7 @@ class _JournalParagraphState extends State<JournalParagraph> {
                     transform: Matrix4.translationValues(_offset, 0, 0),
                     child: _offset == 0
                         ? content
-                        : ColoredBox(color: paper, child: content),
+                        : ColoredBox(color: colors.paper, child: content),
                   ),
                 ],
               ),

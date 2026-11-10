@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'app_localizations.dart';
 import 'journal_theme.dart';
 import 'notebook.dart';
 
@@ -24,6 +25,7 @@ class _EntryEditorState extends State<EntryEditor> {
   bool _explanation = true;
   String? _error;
   bool get _needsDate => widget.original == null || !_explanation;
+  AppLocalizations get _l10n => AppLocalizations.of(context);
   @override
   void dispose() {
     _text.dispose();
@@ -38,7 +40,7 @@ class _EntryEditorState extends State<EntryEditor> {
     if (text == null || text.isEmpty) {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('剪贴板中没有可粘贴的文字。')));
+        ..showSnackBar(SnackBar(content: Text(_l10n.clipboardEmpty)));
       return;
     }
     final value = _text.value;
@@ -62,9 +64,9 @@ class _EntryEditorState extends State<EntryEditor> {
       initialDate: _date != null && !_date!.isBefore(today) ? _date : today,
       firstDate: today,
       lastDate: DateTime(today.year + 100, 12, 31),
-      helpText: '为预言落下日期',
-      cancelText: '返回',
-      confirmText: '落定',
+      helpText: _l10n.dueDateHelp,
+      cancelText: _l10n.cancel,
+      confirmText: _l10n.setDate,
     );
     if (result != null) {
       setState(() {
@@ -76,12 +78,12 @@ class _EntryEditorState extends State<EntryEditor> {
 
   void _save() {
     if (_text.text.trim().isEmpty) {
-      setState(() => _error = '请先写下文字。');
+      setState(() => _error = _l10n.writeFirst);
       return;
     }
     if (_needsDate &&
         (_date == null || _date!.isBefore(dateOnly(DateTime.now())))) {
-      setState(() => _error = '请为这段预言选择日期。');
+      setState(() => _error = _l10n.chooseDueDate);
       return;
     }
     Navigator.pop(
@@ -92,13 +94,14 @@ class _EntryEditorState extends State<EntryEditor> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = journalThemeOf(context);
     final now = DateTime.now();
     final choices = <String, DateTime>{
-      '三天后': dateOnly(now.add(const Duration(days: 3))),
-      '一周后': dateOnly(now.add(const Duration(days: 7))),
-      '一个月后': calendarOffset(now, months: 1),
-      '一年后': calendarOffset(now, years: 1),
-      '三年后': calendarOffset(now, years: 3),
+      _l10n.inThreeDays: dateOnly(now.add(const Duration(days: 3))),
+      _l10n.inOneWeek: dateOnly(now.add(const Duration(days: 7))),
+      _l10n.inOneMonth: calendarOffset(now, months: 1),
+      _l10n.inOneYear: calendarOffset(now, years: 1),
+      _l10n.inThreeYears: calendarOffset(now, years: 3),
     };
     return Scaffold(
       body: PaperSurface(
@@ -112,13 +115,15 @@ class _EntryEditorState extends State<EntryEditor> {
                   children: [
                     TextButton(
                       onPressed: () => Navigator.pop(context),
-                      child: const Text('搁笔'),
+                      child: Text(_l10n.closeEditor),
                     ),
                     Text(
-                      widget.original == null ? '续写' : '修订',
+                      widget.original == null
+                          ? _l10n.continueWriting
+                          : _l10n.revise,
                       style: journalText.copyWith(fontSize: 24),
                     ),
-                    TextButton(onPressed: _save, child: const Text('落笔')),
+                    TextButton(onPressed: _save, child: Text(_l10n.write)),
                   ],
                 ),
               ),
@@ -132,14 +137,17 @@ class _EntryEditorState extends State<EntryEditor> {
                         SelectableText(
                           widget.original!.text,
                           style: journalText.copyWith(
-                            color: fadedInk,
+                            color: colors.fadedInk,
                             fontSize: 17,
                           ),
                         ),
                         const SizedBox(height: 20),
                         Wrap(
                           spacing: 18,
-                          children: [_mode('留下解释', true), _mode('新的断言', false)],
+                          children: [
+                            _mode(_l10n.leaveExplanation, true),
+                            _mode(_l10n.newAssertionMode, false),
+                          ],
                         ),
                         const SizedBox(height: 18),
                       ],
@@ -148,7 +156,7 @@ class _EntryEditorState extends State<EntryEditor> {
                         child: TextButton.icon(
                           onPressed: _paste,
                           icon: const Icon(Icons.content_paste, size: 18),
-                          label: const Text('粘贴'),
+                          label: Text(_l10n.paste),
                         ),
                       ),
                       TextField(
@@ -160,9 +168,11 @@ class _EntryEditorState extends State<EntryEditor> {
                         keyboardType: TextInputType.multiline,
                         decoration: InputDecoration(
                           border: InputBorder.none,
-                          hintText: _needsDate ? '我会……' : '事情未曾如此发展，是因为……',
+                          hintText: _needsDate
+                              ? _l10n.assertionHint
+                              : _l10n.revisionHint,
                           hintStyle: journalText.copyWith(
-                            color: fadedInk.withValues(alpha: .65),
+                            color: colors.fadedInk.withValues(alpha: .65),
                           ),
                         ),
                       ),
@@ -173,7 +183,9 @@ class _EntryEditorState extends State<EntryEditor> {
                           child: TextButton(
                             onPressed: _calendar,
                             child: Text(
-                              _date == null ? '选择日期' : journalDate(_date!),
+                              _date == null
+                                  ? _l10n.chooseDate
+                                  : _l10n.dateFormat(_date!),
                               style: journalText.copyWith(fontSize: 17),
                             ),
                           ),
@@ -198,10 +210,13 @@ class _EntryEditorState extends State<EntryEditor> {
                               .toList(),
                         ),
                         const SizedBox(height: 8),
-                        const Text(
-                          '所选日期的最后一刻，为这段预言的期限。',
+                        Text(
+                          _l10n.dateDeadlineHint,
                           textAlign: TextAlign.right,
-                          style: TextStyle(color: fadedInk, fontSize: 13),
+                          style: TextStyle(
+                            color: colors.fadedInk,
+                            fontSize: 13,
+                          ),
                         ),
                       ],
                       if (_error != null)
@@ -209,8 +224,8 @@ class _EntryEditorState extends State<EntryEditor> {
                           padding: const EdgeInsets.only(top: 16),
                           child: Text(
                             _error!,
-                            style: const TextStyle(
-                              color: Color(0xFF8B493F),
+                            style: TextStyle(
+                              color: Theme.of(context).colorScheme.error,
                               fontSize: 16,
                             ),
                           ),
@@ -229,7 +244,9 @@ class _EntryEditorState extends State<EntryEditor> {
   Widget _mode(String label, bool value) => TextButton(
     onPressed: () => setState(() => _explanation = value),
     style: TextButton.styleFrom(
-      foregroundColor: _explanation == value ? ink : fadedInk,
+      foregroundColor: _explanation == value
+          ? journalThemeOf(context).ink
+          : journalThemeOf(context).fadedInk,
     ),
     child: Text(
       label,

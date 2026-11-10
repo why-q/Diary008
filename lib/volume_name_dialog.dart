@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'app_localizations.dart';
 import 'journal_theme.dart';
 
 class VolumeNameDialog extends StatefulWidget {
@@ -30,18 +31,19 @@ class _VolumeNameDialogState extends State<VolumeNameDialog> {
   @override
   Widget build(BuildContext context) {
     final creating = widget.sealingVolumeTitle != null;
-    final fixedTitle = journalVolumeTitle(widget.volume, '');
+    final l10n = AppLocalizations.of(context);
+    final fixedTitle = l10n.volumeTitle(widget.volume, '');
     return AlertDialog(
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       scrollable: true,
-      title: Text(creating ? '新建$fixedTitle' : '修改卷名'),
+      title: Text(l10n.newVolumeTitle(fixedTitle, creating)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (creating) ...[
             Text(
-              '${widget.sealingVolumeTitle}将永久封存，无法继续编辑，也不再提醒。',
+              l10n.sealingVolume(widget.sealingVolumeTitle!),
               style: const TextStyle(fontSize: 16, height: 1.7),
             ),
             const SizedBox(height: 18),
@@ -52,9 +54,9 @@ class _VolumeNameDialogState extends State<VolumeNameDialog> {
             maxLines: 1,
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
-              labelText: '卷名（选填）',
-              hintText: '例如：晨间计划',
-              helperText: '卷号固定为$fixedTitle；留空只显示卷号。',
+              labelText: l10n.volumeNameLabel,
+              hintText: l10n.volumeNameHint,
+              helperText: l10n.volumeNameHelper(fixedTitle),
               helperMaxLines: 3,
             ),
           ),
@@ -63,11 +65,11 @@ class _VolumeNameDialogState extends State<VolumeNameDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('取消'),
+          child: Text(l10n.cancel),
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, _name.text.trim()),
-          child: Text(creating ? '封存并新建' : '保存'),
+          child: Text(creating ? l10n.archiveAndCreate : l10n.save),
         ),
       ],
     );

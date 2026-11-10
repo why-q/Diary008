@@ -9,7 +9,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'app_language.dart';
 import 'app_licenses.dart';
+import 'app_localizations.dart';
 import 'entry_editor.dart';
 import 'journal_page.dart';
 import 'journal_theme.dart';
@@ -24,6 +26,9 @@ import 'reminder_service.dart';
 import 'reminder_settings.dart';
 import 'data_settings.dart';
 import 'diagnostics.dart';
+import 'theme_preferences.dart';
+import 'theme_settings.dart';
+import 'font_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -73,46 +78,176 @@ Future<void> reminderBackgroundMain() async {
   }
 }
 
-class DiaryApp extends StatelessWidget {
+class DiaryApp extends StatefulWidget {
   const DiaryApp({super.key});
+
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: '家族笔记',
-    debugShowCheckedModeBanner: false,
-    locale: const Locale('zh', 'CN'),
-    supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
-    localizationsDelegates: GlobalMaterialLocalizations.delegates,
-    builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: paper,
-        systemNavigationBarIconBrightness: Brightness.dark,
-      ),
-      child: child!,
-    ),
-    theme: ThemeData(
-      useMaterial3: true,
-      scaffoldBackgroundColor: paper,
-      fontFamily: 'JournalKai',
-      fontFamilyFallback: const ['JournalSerif'],
-      colorScheme: ColorScheme.fromSeed(seedColor: ink, surface: paper),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: ink,
-          textStyle: const TextStyle(fontFamily: 'JournalKai', fontSize: 19),
+  State<DiaryApp> createState() => _DiaryAppState();
+}
+
+class _DiaryAppState extends State<DiaryApp> {
+  AppLanguage _language = AppLanguage.system;
+  LanguageSettingsStore? _languageStore;
+  ThemePreferences _themePreferences = const ThemePreferences();
+  Future<void> _themeSaveQueue = Future<void>.value();
+  int _themeRevision = 0;
+  ThemePreferences? _pendingThemePreferences;
+  final _fontPreferenceController = FontPreferenceController();
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadLanguage());
+    unawaited(_loadThemePreferences());
+    unawaited(_fontPreferenceController.load());
+  }
+
+  Future<void> _loadLanguage() async {
+    final store =
+        await FileLanguageSettingsStore.inApplicationDocumentsDirectory();
+    final language = await store.load();
+    _languageStore = store;
+    if (mounted) setState(() => _language = language);
+  }
+
+  Future<void> _changeLanguage(AppLanguage language) async {
+    final store = _languageStore ??=
+        await FileLanguageSettingsStore.inApplicationDocumentsDirectory();
+    await store.save(language);
+    if (mounted) setState(() => _language = language);
+  }
+
+  Future<void> _loadThemePreferences() async {
+    final revision = _themeRevision;
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final preferences = await readThemePreferences(
+        File('${directory.path}/theme_preferences.json'),
+      );
+      if (mounted && revision == _themeRevision) {
+        setState(() => _themePreferences = preferences);
+      }
+    } catch (error, stack) {
+      await Diagnostics.record(
+        'theme.preferences.read.failed',
+        '${error.runtimeType}\n$stack',
+      );
+    }
+  }
+
+  void _changeThemePreferences(ThemePreferences preferences) {
+    if (_themePreferences == preferences) return;
+    _themeRevision++;
+    _pendingThemePreferences = preferences;
+    setState(() => _themePreferences = preferences);
+    _themeSaveQueue = _themeSaveQueue.then((_) async {
+      final toSave = _pendingThemePreferences;
+      _pendingThemePreferences = null;
+      if (toSave == null) return;
+      try {
+        final directory = await getApplicationDocumentsDirectory();
+        await writeThemePreferences(
+          File('${directory.path}/theme_preferences.json'),
+          toSave,
+        );
+      } catch (error, stack) {
+        await Diagnostics.record(
+          'theme.preferences.write.failed',
+          '${error.runtimeType}\n$stack',
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _fontPreferenceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = switch (_themePreferences.mode) {
+      JournalThemeMode.system => ThemeMode.system,
+      JournalThemeMode.light => ThemeMode.light,
+      JournalThemeMode.dark => ThemeMode.dark,
+    };
+    return AnimatedBuilder(
+      animation: _fontPreferenceController,
+      builder: (context, _) => MaterialApp(
+        onGenerateTitle: (context) => AppLocalizations.of(context).appTitle,
+        debugShowCheckedModeBanner: false,
+        locale: _language.locale,
+        supportedLocales: const [Locale('zh', 'CN'), Locale('en')],
+        localeResolutionCallback: (locale, supportedLocales) =>
+            locale?.languageCode == 'zh'
+            ? const Locale('zh', 'CN')
+            : const Locale('en'),
+        localizationsDelegates: const [
+          AppLocalizations.delegate,
+          ...GlobalMaterialLocalizations.delegates,
+        ],
+        builder: (context, child) {
+          final brightness = _themePreferences.mode == JournalThemeMode.dark
+              ? Brightness.dark
+              : _themePreferences.mode == JournalThemeMode.light
+              ? Brightness.light
+              : MediaQuery.platformBrightnessOf(context);
+          final colors = JournalTheme.fromPalette(
+            _themePreferences.palette,
+            brightness,
+          );
+          final dark = brightness == Brightness.dark;
+          return AnnotatedRegion<SystemUiOverlayStyle>(
+            value: SystemUiOverlayStyle(
+              statusBarColor: Colors.transparent,
+              statusBarIconBrightness: dark
+                  ? Brightness.light
+                  : Brightness.dark,
+              systemNavigationBarColor: colors.paper,
+              systemNavigationBarIconBrightness: dark
+                  ? Brightness.light
+                  : Brightness.dark,
+            ),
+            child: child!,
+          );
+        },
+        theme: applyFontPreference(
+          journalThemeData(_themePreferences.palette, Brightness.light),
+          _fontPreferenceController.preference,
+        ),
+        darkTheme: applyFontPreference(
+          journalThemeData(_themePreferences.palette, Brightness.dark),
+          _fontPreferenceController.preference,
+        ),
+        themeMode: mode,
+        home: NotebookPage(
+          language: _language,
+          onLanguageChanged: _changeLanguage,
+          themePreferences: _themePreferences,
+          onThemeChanged: _changeThemePreferences,
+          fontPreferenceController: _fontPreferenceController,
         ),
       ),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: InputBorder.none,
-      ),
-    ),
-    home: const NotebookPage(),
-  );
+    );
+  }
 }
 
 class NotebookPage extends StatefulWidget {
-  const NotebookPage({super.key});
+  const NotebookPage({
+    super.key,
+    required this.language,
+    required this.onLanguageChanged,
+    required this.themePreferences,
+    required this.onThemeChanged,
+    required this.fontPreferenceController,
+  });
+
+  final AppLanguage language;
+  final Future<void> Function(AppLanguage language) onLanguageChanged;
+  final ThemePreferences themePreferences;
+  final ValueChanged<ThemePreferences> onThemeChanged;
+  final FontPreferenceController fontPreferenceController;
   @override
   State<NotebookPage> createState() => _NotebookPageState();
 }
@@ -136,12 +271,25 @@ class _NotebookPageState extends State<NotebookPage>
   NotebookArchive? get _archive => _selectedArchive == null || _book == null
       ? null
       : _book!.archives.firstWhere((a) => a.volume == _selectedArchive);
+  AppLocalizations get _l10n => AppLocalizations.of(context);
+  Locale? _lastLocale;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _reminders.onTap = _consumeReminderTap;
     _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final locale = Localizations.localeOf(context);
+    if (_lastLocale != null && _lastLocale != locale) {
+      unawaited(_refreshReminders());
+    }
+    _lastLocale = locale;
   }
 
   @override
@@ -176,7 +324,7 @@ class _NotebookPageState extends State<NotebookPage>
       });
       if (!await _expire()) await _refreshReminders();
     } catch (_) {
-      if (mounted) setState(() => _loadError = '笔记暂时无法读取，原有内容未被覆盖。');
+      if (mounted) setState(() => _loadError = _l10n.loadError);
     }
   }
 
@@ -218,7 +366,7 @@ class _NotebookPageState extends State<NotebookPage>
         'notebook.operation.failed',
         '$operation ${error.runtimeType}\n$stack',
       );
-      if (mounted) _notice('落笔未能保存，请重试。');
+      if (mounted) _notice(_l10n.saveFailed);
       return false;
     } finally {
       await _releaseBusy();
@@ -230,7 +378,7 @@ class _NotebookPageState extends State<NotebookPage>
     ..showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontSize: 17)),
-        backgroundColor: ink,
+        backgroundColor: journalThemeOf(context).ink,
         duration: const Duration(seconds: 4),
       ),
     );
@@ -242,7 +390,7 @@ class _NotebookPageState extends State<NotebookPage>
       operation: 'expire',
     );
     if (saved && mounted) {
-      _notice('本卷已封存，新的空白页已开启。点击卷号可翻阅旧卷。');
+      _notice(_l10n.volumeExpired);
       await _refreshReminders();
     }
     return true;
@@ -259,7 +407,7 @@ class _NotebookPageState extends State<NotebookPage>
     );
     if (!mounted || draft == null || _busy) return;
     if (await _expire() || _book!.volume != volume) {
-      if (mounted) _notice('原卷已经失效，请在新页重新书写。');
+      if (mounted) _notice(_l10n.originalExpired);
       return;
     }
     try {
@@ -269,7 +417,7 @@ class _NotebookPageState extends State<NotebookPage>
           : _book!.revise(original.id, draft.text, draft.due, now);
       await _persist(updated, operation: original == null ? 'add' : 'revise');
     } on ArgumentError {
-      _notice('日期已经过去，请重新选择。');
+      _notice(_l10n.dateInPast);
     } on StateError {
       await _expire();
     }
@@ -282,16 +430,16 @@ class _NotebookPageState extends State<NotebookPage>
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('是否确认已履行？'),
-        content: const Text('确认后将标记为已履行，不能撤销。'),
+        title: Text(_l10n.fulfillTitle),
+        content: Text(_l10n.fulfillContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('取消'),
+            child: Text(_l10n.cancel),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('确认履行'),
+            child: Text(_l10n.confirmFulfillment),
           ),
         ],
       ),
@@ -306,7 +454,7 @@ class _NotebookPageState extends State<NotebookPage>
           ) &&
           mounted) {
         HapticFeedback.lightImpact();
-        _notice('这一段预言，已成为事实。');
+        _notice(_l10n.fulfilledNotice);
       }
     } on StateError {
       await _expire();
@@ -328,7 +476,7 @@ class _NotebookPageState extends State<NotebookPage>
     if (_busy || await _expire() || !mounted) return;
     final chosen = await showModalBottomSheet<VolumeSelection>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       builder: (_) => VolumePicker(book: _book!),
     );
     if (!mounted || chosen == null || _busy || await _expire() || !mounted) {
@@ -365,9 +513,9 @@ class _NotebookPageState extends State<NotebookPage>
           !mounted) {
         return;
       }
-      _notice('这一卷已删除，其后卷号已前移。');
+      _notice(_l10n.archiveDeleted);
     } on StateError {
-      if (mounted) _notice('只能删除已封存的卷。');
+      if (mounted) _notice(_l10n.archiveDeleteOnly);
     }
   }
 
@@ -380,13 +528,13 @@ class _NotebookPageState extends State<NotebookPage>
         volume: create ? current.volume + 1 : current.volume,
         initialName: create ? '' : current.volumeName,
         sealingVolumeTitle: create
-            ? journalVolumeTitle(current.volume, current.volumeName)
+            ? _l10n.volumeTitle(current.volume, current.volumeName)
             : null,
       ),
     );
     if (!mounted || name == null) return;
     if (_busy || _book!.volume != current.volume || await _expire()) {
-      if (mounted) _notice('卷册状态已更新，请重新操作。');
+      if (mounted) _notice(_l10n.volumeStateChanged);
       return;
     }
     try {
@@ -406,9 +554,9 @@ class _NotebookPageState extends State<NotebookPage>
           _selectedArchive = null;
           _filter = NotebookFilter.pending;
         });
-        _notice('旧卷已封存，新的空白页已开启。');
+        _notice(_l10n.oldVolumeArchived);
       } else {
-        _notice('卷名已保存。');
+        _notice(_l10n.volumeNameSaved);
       }
     } on StateError {
       await _expire();
@@ -416,15 +564,15 @@ class _NotebookPageState extends State<NotebookPage>
   }
 
   String _filterName(NotebookFilter filter) => switch (filter) {
-    NotebookFilter.all => '全部',
-    NotebookFilter.pending => '履行中',
-    NotebookFilter.fulfilled => '已履行',
-    NotebookFilter.unfulfilled => '未履行',
+    NotebookFilter.all => _l10n.filterName(filter),
+    NotebookFilter.pending => _l10n.filterName(filter),
+    NotebookFilter.fulfilled => _l10n.filterName(filter),
+    NotebookFilter.unfulfilled => _l10n.filterName(filter),
   };
 
   String? _archiveAnnotation(JournalEntry entry, NotebookArchive? archive) {
     if (archive == null || entry.status != EntryStatus.pending) return null;
-    return archive.failedEntryIds.contains(entry.id) ? '未如期履行' : '随卷封存';
+    return _l10n.archiveAnnotation(archive.failedEntryIds.contains(entry.id));
   }
 
   Future<void> _resume() async {
@@ -449,12 +597,15 @@ class _NotebookPageState extends State<NotebookPage>
   Future<void> _refreshReminders({bool reportStatus = false}) async {
     final book = _book;
     if (_destroying || book == null) {
-      if (reportStatus && mounted) _notice('笔记尚未加载，无法检查提醒。');
+      if (reportStatus && mounted) _notice(_l10n.notebookNotLoaded);
       return;
     }
     final generation = ++_reminderGeneration;
     try {
-      final result = await _reminders.synchronize(book);
+      final result = await _reminders.synchronize(
+        book,
+        locale: Localizations.localeOf(context),
+      );
       if (!mounted) return;
       final isCurrent = generation == _reminderGeneration;
       if (isCurrent) {
@@ -465,9 +616,9 @@ class _NotebookPageState extends State<NotebookPage>
       }
       if (reportStatus) {
         final status = result.enabled
-            ? '提醒状态已检查：通知已开启，已安排 ${result.scheduledCount} 次未来提醒。'
-            : '提醒状态已检查：系统通知尚未开启，或提醒通道已关闭。';
-        _notice(isCurrent ? status : '$status 后续检查可能已更新状态。');
+            ? _l10n.remindersChecked(result.scheduledCount)
+            : _l10n.remindersDisabled;
+        _notice(isCurrent ? status : _l10n.reminderCheckStale(status));
       }
       if (isCurrent) _consumeReminderTap();
     } catch (_) {
@@ -477,8 +628,8 @@ class _NotebookPageState extends State<NotebookPage>
       if (reportStatus) {
         _notice(
           isCurrent
-              ? '提醒检查失败，请重试；如果持续失败，请打开系统通知设置。笔记内容已保存。'
-              : '本次提醒检查失败；后续状态可能已更新。请重新检查或打开系统通知设置；笔记内容已保存。',
+              ? _l10n.reminderCheckFailure
+              : _l10n.reminderCheckFailureStale,
         );
       }
     }
@@ -509,7 +660,11 @@ class _NotebookPageState extends State<NotebookPage>
     _busy = true;
     ++_reminderGeneration;
     try {
-      final result = await _reminders.updatePreferences(_book!, preferences);
+      final result = await _reminders.updatePreferences(
+        _book!,
+        preferences,
+        locale: Localizations.localeOf(context),
+      );
       if (!mounted) return false;
       setState(() {
         _reminderResult = result;
@@ -532,7 +687,7 @@ class _NotebookPageState extends State<NotebookPage>
     } catch (_) {
       if (!mounted) return;
       setState(() => _reminderError = true);
-      _notice('启用通知提醒失败，请检查系统通知设置后重试。笔记内容已保存。');
+      _notice(_l10n.permissionFailure);
     }
   }
 
@@ -540,13 +695,11 @@ class _NotebookPageState extends State<NotebookPage>
     try {
       final opened = await _reminders.openSystemSettings();
       if (!mounted) return;
-      _notice(
-        opened ? '已打开系统通知设置，返回后可重新检查提醒。' : '无法打开系统通知设置；请在系统设置中为 家族笔记 开启通知。',
-      );
+      _notice(_l10n.settingsOpened(opened));
     } catch (_) {
       if (!mounted) return;
       setState(() => _reminderError = true);
-      _notice('系统通知设置打开失败；请在系统设置中为 家族笔记 开启通知。');
+      _notice(_l10n.settingsOpenFailure);
     }
   }
 
@@ -557,13 +710,13 @@ class _NotebookPageState extends State<NotebookPage>
     } catch (_) {
       if (!mounted) return;
       setState(() => _reminderError = true);
-      _notice('提醒设置暂时无法读取，请稍后重试。');
+      _notice(_l10n.reminderPreferencesFailure);
       return;
     }
     if (!mounted) return;
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       isScrollControlled: true,
       builder: (_) => ReminderSettings(
         result: _reminderResult,
@@ -580,7 +733,7 @@ class _NotebookPageState extends State<NotebookPage>
   void _showDataSettings() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: paper,
+      backgroundColor: journalThemeOf(context).paper,
       isScrollControlled: true,
       isDismissible: true,
       constraints: BoxConstraints(
@@ -588,58 +741,74 @@ class _NotebookPageState extends State<NotebookPage>
       ),
       enableDrag: false,
       builder: (_) => DataSettings(
+        onTheme: _showThemeSettings,
+        fontPreferenceController: widget.fontPreferenceController,
         onDestroy: _destroyAllRecords,
         onExport: _exportBackup,
         onImport: _importBackup,
+        language: widget.language,
+        onLanguageChanged: widget.onLanguageChanged,
+      ),
+    );
+  }
+
+  void _showThemeSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: journalThemeOf(context).paper,
+      isScrollControlled: true,
+      builder: (_) => ThemeSettings(
+        preferences: widget.themePreferences,
+        onChanged: widget.onThemeChanged,
       ),
     );
   }
 
   Future<String> _exportBackup() async {
-    if (_loading != null || _busy) return '正在读写笔记，请稍后重试。';
+    if (_loading != null || _busy) return _l10n.busyReading;
     final book = _book;
-    if (book == null) return '笔记尚未读取成功，无法导出备份。';
+    if (book == null) return _l10n.exportUnavailable;
     final snapshot = jsonEncode(book.toJson());
     final encrypted = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: paper,
-        title: const Text('选择备份方式'),
-        content: const Text('明文备份可直接读取；密码加密备份需要密码才能恢复。'),
+        backgroundColor: journalThemeOf(context).paper,
+        title: Text(_l10n.backupChoiceTitle),
+        content: Text(_l10n.backupChoiceContent),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('取消'),
+            child: Text(_l10n.cancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('明文备份'),
+            child: Text(_l10n.plainBackup),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('密码加密备份'),
+            child: Text(_l10n.encryptedBackup),
           ),
         ],
       ),
     );
-    if (encrypted == null || !mounted) return '已取消导出备份。';
+    if (encrypted == null || !mounted) return _l10n.exportCancelled;
     String contents = snapshot;
     if (encrypted) {
       final password = await showBackupPassword(context);
-      if (password == null || !mounted) return '已取消导出备份。';
+      if (password == null || !mounted) return _l10n.exportCancelled;
       contents = await encryptBackup(snapshot, password);
-      if (!mounted) return '已取消导出备份。';
+      if (!mounted) return _l10n.exportCancelled;
     }
     final exported = await backupChannel.invokeMethod<bool>('export', {
       'contents': contents,
     });
     await Diagnostics.record('notebook.backup.export', 'exported=$exported');
-    return exported == true ? '备份已导出。' : '已取消导出备份。';
+    return exported == true ? _l10n.backupExported : _l10n.exportCancelled;
   }
 
   Future<String> _importBackup() async {
     if (_busy || _destroying || _loading != null) {
-      return '正在读写笔记，请稍后重试。';
+      return _l10n.busyReading;
     }
     _busy = true;
     _destroying = true;
@@ -650,16 +819,16 @@ class _NotebookPageState extends State<NotebookPage>
     var resumeScheduled = false;
     try {
       final text = await backupChannel.invokeMethod<String>('import');
-      if (text == null) return '已取消导入备份。';
+      if (text == null) return _l10n.importCancelled;
       String contents = text;
       if (isEncryptedBackup(text)) {
-        if (!mounted) return '已取消导入备份。';
+        if (!mounted) return _l10n.importCancelled;
         final decrypted = await showBackupPassword(context, encrypted: text);
-        if (decrypted == null) return '已取消导入备份。';
+        if (decrypted == null) return _l10n.importCancelled;
         contents = decrypted;
       }
       final backup = decodeNotebookBackup(contents);
-      if (!mounted) return '已取消导入备份。';
+      if (!mounted) return _l10n.importCancelled;
       final count =
           backup.entries.length +
           backup.archives.fold<int>(
@@ -669,26 +838,24 @@ class _NotebookPageState extends State<NotebookPage>
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          backgroundColor: paper,
-          title: const Text('用备份替换所有记录？'),
+          backgroundColor: journalThemeOf(context).paper,
+          title: Text(_l10n.replaceBackupTitle(backup.archives.length)),
           content: Text(
-            '备份包含 ${backup.archives.length + 1} 卷、$count 条记录。'
-            '当前所有卷和记录将被完整替换，无法撤销。建议先取消并导出当前数据。'
-            '恢复后按现有规则检查期限，已逾期的当前卷会自动封存；通知将重新计算。诊断日志保留。',
+            _l10n.replaceBackupContent(backup.archives.length, count),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('取消'),
+              child: Text(_l10n.cancel),
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('确认替换并导入'),
+              child: Text(_l10n.importBackup),
             ),
           ],
         ),
       );
-      if (confirmed != true || !mounted) return '已取消导入备份。';
+      if (confirmed != true || !mounted) return _l10n.importCancelled;
       await _reminders.beginDestruction();
       gateAcquired = true;
       final dir = await getApplicationDocumentsDirectory();
@@ -727,15 +894,15 @@ class _NotebookPageState extends State<NotebookPage>
     }
     if (!resumeScheduled) await _refreshReminders();
     if (reminderFailure || _reminderError) {
-      return '备份已导入；提醒更新未完成，请检查提醒设置并重新打开应用。';
+      return _l10n.importReminderFailure;
     }
-    return '备份已导入，已替换所有记录。';
+    return _l10n.importComplete;
   }
 
   Future<String> _destroyAllRecords() async {
-    if (_busy || _destroying) return '正在保存，请稍后重试。';
+    if (_busy || _destroying) return _l10n.saving;
     if (_loading != null || (_book == null && _loadError == null)) {
-      return '正在读取笔记，请稍后重试。';
+      return _l10n.reading;
     }
     _destroying = true;
     _busy = true;
@@ -778,16 +945,16 @@ class _NotebookPageState extends State<NotebookPage>
           '${error.runtimeType}\n$stack',
         );
         if (mounted) setState(() => _reminderError = true);
-        return '所有记录已销毁，日志保留；提醒清理失败，请在提醒设置中检查。';
+        return _l10n.destroyReminderFailure;
       }
       await Diagnostics.record('notebook.destroy.completed');
-      return '所有记录已销毁，已回到空白卷。诊断日志保留。';
+      return _l10n.destroyComplete;
     } catch (error, stack) {
       await Diagnostics.record(
         'notebook.destroy.failed',
         '${error.runtimeType}\n$stack',
       );
-      return '记录未能销毁，请重试。';
+      return _l10n.destroyFailure;
     } finally {
       if (gateAcquired) {
         try {
@@ -799,7 +966,7 @@ class _NotebookPageState extends State<NotebookPage>
           );
           if (mounted) {
             setState(() => _reminderError = true);
-            _notice('提醒后台恢复失败，请关闭并重新打开应用。');
+            _notice(_l10n.reminderRecoveryFailure);
           }
         }
       }
@@ -832,14 +999,13 @@ class _NotebookPageState extends State<NotebookPage>
                   padding: const EdgeInsets.fromLTRB(28, 22, 20, 0),
                   child: Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'THE SEALED NOTEBOOK',
+                          _l10n.sealedNotebook,
                           style: TextStyle(
-                            fontFamily: 'JournalSerif',
                             fontSize: 12,
                             letterSpacing: 2,
-                            color: fadedInk,
+                            color: journalThemeOf(context).fadedInk,
                           ),
                         ),
                       ),
@@ -848,24 +1014,27 @@ class _NotebookPageState extends State<NotebookPage>
                           child: TextButton(
                             onPressed: _chooseVolume,
                             child: Text(
-                              journalVolumeTitle(
+                              _l10n.volumeTitle(
                                 archive?.volume ?? _book!.volume,
                                 archive?.volumeName ?? _book!.volumeName,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 15,
-                                color: fadedInk,
+                                color: journalThemeOf(context).fadedInk,
                               ),
                             ),
                           ),
                         ),
                       TextButton(
                         onPressed: _showDataSettings,
-                        child: const Text(
-                          '设置',
-                          style: TextStyle(fontSize: 15, color: fadedInk),
+                        child: Text(
+                          _l10n.settings,
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: journalThemeOf(context).fadedInk,
+                          ),
                         ),
                       ),
                     ],
@@ -879,18 +1048,25 @@ class _NotebookPageState extends State<NotebookPage>
                             children: [
                               Padding(
                                 padding: const EdgeInsets.all(24),
-                                child: Text(_loadError!, style: journalText),
+                                child: Text(
+                                  _loadError!,
+                                  style: journalText.copyWith(
+                                    color: journalThemeOf(context).ink,
+                                  ),
+                                ),
                               ),
                               TextButton(
                                 onPressed: _load,
-                                child: const Text('重新读取'),
+                                child: Text(_l10n.reload),
                               ),
                             ],
                           ),
                         )
                       : _book == null
-                      ? const Center(
-                          child: CircularProgressIndicator(color: fadedInk),
+                      ? Center(
+                          child: CircularProgressIndicator(
+                            color: journalThemeOf(context).fadedInk,
+                          ),
                         )
                       : CustomScrollView(
                           controller: _scrollController,
@@ -905,24 +1081,23 @@ class _NotebookPageState extends State<NotebookPage>
                                       CrossAxisAlignment.stretch,
                                   children: [
                                     const SizedBox(height: 24),
-                                    const Text(
-                                      '家族笔记',
+                                    Text(
+                                      _l10n.appTitle,
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
                                         fontSize: 34,
                                         letterSpacing: 8,
-                                        color: ink,
+                                        color: journalThemeOf(context).ink,
                                       ),
                                     ),
                                     const SizedBox(height: 7),
-                                    const Text(
+                                    Text(
                                       'THE FAMILY JOURNAL',
                                       textAlign: TextAlign.center,
                                       style: TextStyle(
-                                        fontFamily: 'JournalSerif',
                                         fontSize: 13,
                                         letterSpacing: 2.4,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                     const SizedBox(height: 14),
@@ -931,7 +1106,7 @@ class _NotebookPageState extends State<NotebookPage>
                                           MainAxisAlignment.spaceBetween,
                                       children: [
                                         PopupMenuButton<NotebookFilter>(
-                                          tooltip: '筛选记录',
+                                          tooltip: _l10n.filterRecords,
                                           initialValue: _filter,
                                           onSelected: (value) =>
                                               setState(() => _filter = value),
@@ -953,25 +1128,26 @@ class _NotebookPageState extends State<NotebookPage>
                                             ),
                                             child: Text(
                                               _filterName(_filter),
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontSize: 14,
-                                                color: fadedInk,
+                                                color: journalThemeOf(context)
+                                                    .fadedInk,
                                               ),
                                             ),
                                           ),
                                         ),
                                         PopupMenuButton<NotebookSortOrder>(
-                                          tooltip: '排列方式',
+                                          tooltip: _l10n.sortOrder,
                                           initialValue: _book!.sortOrder,
                                           onSelected: _changeSortOrder,
-                                          itemBuilder: (_) => const [
+                                          itemBuilder: (_) => [
                                             PopupMenuItem(
                                               value: NotebookSortOrder.writing,
-                                              child: Text('书写顺序'),
+                                              child: Text(_l10n.writingOrder),
                                             ),
                                             PopupMenuItem(
                                               value: NotebookSortOrder.deadline,
-                                              child: Text('有效日期'),
+                                              child: Text(_l10n.dueDateOrder),
                                             ),
                                           ],
                                           child: Padding(
@@ -982,11 +1158,12 @@ class _NotebookPageState extends State<NotebookPage>
                                             child: Text(
                                               _book!.sortOrder ==
                                                       NotebookSortOrder.writing
-                                                  ? '书写顺序'
-                                                  : '有效日期',
-                                              style: const TextStyle(
+                                                  ? _l10n.writingOrder
+                                                  : _l10n.dueDateOrder,
+                                              style: TextStyle(
                                                 fontSize: 14,
-                                                color: fadedInk,
+                                                color: journalThemeOf(context)
+                                                    .fadedInk,
                                               ),
                                             ),
                                           ),
@@ -995,25 +1172,31 @@ class _NotebookPageState extends State<NotebookPage>
                                     ),
                                     if (archive != null) ...[
                                       const SizedBox(height: 16),
-                                      const Text(
-                                        '本卷已封存 · 只读',
+                                      Text(
+                                        _l10n.readOnlyArchived,
                                         style: TextStyle(
                                           fontSize: 18,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                       const SizedBox(height: 8),
                                       Text(
                                         archive.reason ==
                                                 ArchiveReason.manualClosure
-                                            ? '封存：${journalDate(archive.archivedAt.toLocal())}\n缘由：主动封存。状态以封存时为准。'
-                                            : '失效：${journalDate(archive.invalidatedAt!.toLocal())}\n'
-                                                  '封存：${journalDate(archive.archivedAt.toLocal())}\n'
-                                                  '缘由：预言逾期未履行。状态以失效时为准。',
-                                        style: const TextStyle(
+                                            ? _l10n.archiveSummaryActive(
+                                                archive.archivedAt.toLocal(),
+                                              )
+                                            : _l10n.archiveSummaryExpired(
+                                                archive.invalidatedAt!
+                                                    .toLocal(),
+                                                archive.archivedAt.toLocal(),
+                                              ),
+                                        style: TextStyle(
                                           fontSize: 14,
                                           height: 1.8,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ],
@@ -1025,14 +1208,15 @@ class _NotebookPageState extends State<NotebookPage>
                                         ),
                                         child: Text(
                                           volumeEntries.isEmpty
-                                              ? '此页尚白，\n故事将由你落笔。'
+                                              ? _l10n.emptyPage
                                               : _filter ==
                                                     NotebookFilter.pending
-                                              ? '此刻暂无待履行的预言。\n切换“全部”可翻阅已有记录。'
-                                              : '此处暂无相应的记录。',
+                                              ? _l10n.noPending
+                                              : _l10n.noMatchingRecords,
                                           textAlign: TextAlign.center,
                                           style: journalText.copyWith(
-                                            color: fadedInk,
+                                            color: journalThemeOf(context)
+                                                .fadedInk,
                                             height: 2.2,
                                           ),
                                         ),
@@ -1080,10 +1264,10 @@ class _NotebookPageState extends State<NotebookPage>
                                     if (archive == null)
                                       Center(
                                         child: Semantics(
-                                          label: '写下新的断言',
+                                          label: _l10n.newAssertion,
                                           button: true,
                                           child: IconButton(
-                                            tooltip: '写下新的断言',
+                                            tooltip: _l10n.newAssertionTooltip,
                                             onPressed: () => _edit(),
                                             padding: const EdgeInsets.all(14),
                                             icon: const Feather(),
@@ -1093,13 +1277,13 @@ class _NotebookPageState extends State<NotebookPage>
                                     const SizedBox(height: 20),
                                     Text(
                                       archive == null
-                                          ? '请于期限前确认履行，或留下修订；\n逾期，本卷封存，另启新页。'
-                                          : '旧卷留存，往事不可改写。',
+                                          ? _l10n.fulfillOrRevise
+                                          : _l10n.archivedReadOnlyHint,
                                       textAlign: TextAlign.center,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         fontSize: 13,
                                         height: 1.8,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                     if (archive == null &&
@@ -1108,12 +1292,13 @@ class _NotebookPageState extends State<NotebookPage>
                                               e.status == EntryStatus.pending,
                                         )) ...[
                                       const SizedBox(height: 18),
-                                      const Text(
-                                        '左滑履行 · 右滑修订',
+                                      Text(
+                                        _l10n.swipeHint,
                                         textAlign: TextAlign.center,
                                         style: TextStyle(
                                           fontSize: 13,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ],
@@ -1122,18 +1307,23 @@ class _NotebookPageState extends State<NotebookPage>
                                       onPressed: _showReminderSettings,
                                       child: Text(
                                         _reminderError
-                                            ? '提醒暂不可用 · 点击检查'
+                                            ? _l10n.checkReminders
                                             : _reminderResult?.enabled == true
                                             ? _reminderResult!
                                                           .preferences
                                                           .mode ==
                                                       ReminderMode.daily
-                                                  ? '每日提醒 · ${_reminderResult!.preferences.hour.toString().padLeft(2, '0')}:${_reminderResult!.preferences.minute.toString().padLeft(2, '0')}'
-                                                  : '自动提醒 · 当地时间09:00'
-                                            : '开启提醒',
-                                        style: const TextStyle(
+                                                  ? _l10n.dailyReminderAt(
+                                                      '${_reminderResult!.preferences.hour.toString().padLeft(2, '0')}:${_reminderResult!.preferences.minute.toString().padLeft(2, '0')}',
+                                                    )
+                                                  : _l10n.automaticReminderAt(
+                                                      '09:00',
+                                                    )
+                                            : _l10n.enableReminders,
+                                        style: TextStyle(
                                           fontSize: 14,
-                                          color: fadedInk,
+                                          color: journalThemeOf(context)
+                                              .fadedInk,
                                         ),
                                       ),
                                     ),

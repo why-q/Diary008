@@ -12,7 +12,7 @@
 
 - [ ] 确认交付的是统一 Release APK，并核对其签名身份；不要把 Debug、Profile 或按 ABI 拆分的 APK 当作标准交付包。
 - [ ] 确认设置中的“隐私说明”展示 `assets/privacy_notice.txt`，并依据实际清单、存储及导入／导出行为核对 [`PRIVACY.md`](../PRIVACY.md)。文档应继续引用该隐私正文，不要另写一份容易过时的副本。
-- [ ] 确认应用内开源许可页展示与字体一起分发的两份原始字体许可文本：`assets/fonts/MaShanZheng-OFL.txt` 和 `assets/fonts/CormorantGaramond-OFL.txt`。按许可要求随字体保留完整版权声明和许可文本。
+- [ ] 确认应用内开源许可页展示与所选字体一起分发的六份完整 SIL OFL 文本：`MaShanZheng-OFL.txt`、`CormorantGaramond-OFL.txt`、`NotoSerifSC-OFL.txt`、`NotoSansSC-OFL.txt`、`Literata-OFL.txt` 和 `Inter-OFL.txt`（均位于 `assets/fonts/`）。按许可要求随字体保留完整版权声明和许可文本；中文 Noto 字体以子集文件打包。
 - [ ] 核对 Flutter 与其他第三方依赖的许可，以及实际要交付的 APK；不要把本地诊断文件、构建中间产物误当成发布文件。
 - [ ] 正式签名配置完成后，由发布负责人在目标设备上验证最终 APK 的安装、启动、同签名更新，以及系统备份／恢复流程。当前本地验证不替代这些场景的实机检查。
 - [ ] 向测试者说明数据丢失与备份风险，并仅在作者已建立支持渠道时提供反馈方式；不要编造联系邮箱或网址。

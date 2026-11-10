@@ -14,6 +14,7 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   path_provider: ^2.1.6
+  shared_preferences: ^2.5.6
   timezone: ^0.11.2
 
 dev_dependencies:
@@ -28,11 +29,16 @@ flutter:
   assets:
     - assets/fonts/MaShanZheng-OFL.txt
     - assets/fonts/CormorantGaramond-OFL.txt
+    - assets/fonts/NotoSerifSC-OFL.txt
+    - assets/fonts/NotoSansSC-OFL.txt
+    - assets/fonts/Literata-OFL.txt
+    - assets/fonts/Inter-OFL.txt
     - assets/privacy_notice.txt
+    - assets/privacy_notice_en.txt
   fonts:
-    - family: JournalKai
+    - family: MaShanZheng
       fonts:
         - asset: assets/fonts/MaShanZheng.ttf
-    - family: JournalSerif
+    - family: CormorantGaramond
       fonts:
         - asset: assets/fonts/CormorantGaramond.ttf

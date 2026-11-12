@@ -276,12 +276,14 @@ class FontPreferenceController extends ChangeNotifier {
     FontAssetDownloader? downloader,
     FontLoaderCallback? fontLoader,
     FontCacheDirectoryProvider? cacheDirectoryProvider,
+    this._preferenceLoader,
   }) : _downloadBaseUrl = downloadBaseUrl ?? fontDownloadBaseUrl,
        _downloader = downloader ?? _httpDownload,
        _fontLoader = fontLoader ?? _loadFont,
        _cacheDirectoryProvider =
            cacheDirectoryProvider ?? _defaultFontCacheDirectory;
 
+  final Future<AppFontPreference> Function()? _preferenceLoader;
   final String _downloadBaseUrl;
   final FontAssetDownloader _downloader;
   final FontLoaderCallback _fontLoader;
@@ -304,10 +306,13 @@ class FontPreferenceController extends ChangeNotifier {
 
   Future<void> _load() async {
     try {
-      final preferences = await SharedPreferences.getInstance();
-      final saved = AppFontPreferenceDetails.fromStorage(
-        preferences.getString(_fontPreferenceStorageKey),
-      );
+      final saved = _preferenceLoader != null
+          ? await _preferenceLoader()
+          : AppFontPreferenceDetails.fromStorage(
+              (await SharedPreferences.getInstance()).getString(
+                _fontPreferenceStorageKey,
+              ),
+            );
       final bundle = fontBundleFor(saved);
       if (bundle == null) {
         _preference = saved;
@@ -563,22 +568,37 @@ Future<Uint8List> _httpDownload(
         uri: uri,
       );
     }
-    final builder = BytesBuilder(copy: false);
-    var length = 0;
-    await for (final chunk in response) {
-      cancellation.throwIfCancelled();
-      length += chunk.length;
-      if (length > expectedLength) {
-        throw const FormatException('字体下载超过预期文件大小。');
-      }
-      builder.add(chunk);
-    }
-    cancellation.throwIfCancelled();
-    return builder.takeBytes();
+    return await readFontResponseBody(
+      response,
+      expectedLength: expectedLength,
+      cancellation: cancellation,
+      idleTimeout: const Duration(seconds: 30),
+    );
   } finally {
     removeCancellationListener();
     client.close(force: true);
   }
+}
+
+/// Collects a bounded HTTP body while enforcing an inactivity timeout per chunk.
+Future<Uint8List> readFontResponseBody(
+  Stream<List<int>> response, {
+  required int expectedLength,
+  required FontDownloadCancellation cancellation,
+  Duration idleTimeout = const Duration(seconds: 30),
+}) async {
+  final builder = BytesBuilder(copy: false);
+  var length = 0;
+  await for (final chunk in response.timeout(idleTimeout)) {
+    cancellation.throwIfCancelled();
+    length += chunk.length;
+    if (length > expectedLength) {
+      throw const FormatException('字体下载超过预期文件大小。');
+    }
+    builder.add(chunk);
+  }
+  cancellation.throwIfCancelled();
+  return builder.takeBytes();
 }
 
 Future<void> _loadFont(String family, Uint8List fontBytes) async {

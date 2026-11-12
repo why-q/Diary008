@@ -149,7 +149,12 @@ class _ReminderSettingsState extends State<ReminderSettings> {
                 padding: EdgeInsets.only(left: 52, bottom: 8),
                 child: Text(
                   _l10n.automaticDescription,
-                  style: TextStyle(fontSize: 14, height: 1.65, color: fadedInk),
+                  key: const Key('reminder-automatic-description'),
+                  style: TextStyle(
+                    fontSize: 14,
+                    height: 1.65,
+                    color: journalThemeOf(context).fadedInk,
+                  ),
                 ),
               ),
               RadioListTile<ReminderMode>(
@@ -187,13 +192,23 @@ class _ReminderSettingsState extends State<ReminderSettings> {
               const SizedBox(height: 8),
               Text(
                 _l10n.timezoneNotice,
-                style: TextStyle(fontSize: 14, height: 1.65, color: fadedInk),
+                key: const Key('reminder-timezone-notice'),
+                style: TextStyle(
+                  fontSize: 14,
+                  height: 1.65,
+                  color: journalThemeOf(context).fadedInk,
+                ),
               ),
               if (_saveFailed) ...[
                 const SizedBox(height: 8),
                 Text(
                   _l10n.settingsRetry,
-                  style: TextStyle(fontSize: 15, height: 1.6, color: ink),
+                  key: const Key('reminder-save-error'),
+                  style: TextStyle(
+                    fontSize: 15,
+                    height: 1.6,
+                    color: journalThemeOf(context).ink,
+                  ),
                 ),
               ],
               const SizedBox(height: 16),

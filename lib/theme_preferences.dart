@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 enum JournalThemeMode { system, light, dark }
 
 enum JournalPalette { antiquePaper, plainWhite, cyanPaper }
@@ -75,4 +77,57 @@ Future<void> writeThemePreferences(
     flush: true,
   );
   await temp.rename(file.path);
+}
+
+abstract interface class ThemePreferencesStore {
+  Future<ThemePreferences> load();
+  Future<void> save(ThemePreferences preferences);
+}
+
+class FileThemePreferencesStore implements ThemePreferencesStore {
+  FileThemePreferencesStore(this.file);
+
+  static const fileName = 'theme_preferences.json';
+  final File file;
+
+  static Future<FileThemePreferencesStore>
+  inApplicationDocumentsDirectory() async {
+    final directory = await getApplicationDocumentsDirectory();
+    return FileThemePreferencesStore(File('${directory.path}/$fileName'));
+  }
+
+  @override
+  Future<ThemePreferences> load() => readThemePreferences(file);
+
+  @override
+  Future<void> save(ThemePreferences preferences) =>
+      writeThemePreferences(file, preferences);
+}
+
+class UnavailableThemePreferencesStore implements ThemePreferencesStore {
+  const UnavailableThemePreferencesStore();
+
+  @override
+  Future<ThemePreferences> load() async => const ThemePreferences();
+
+  @override
+  Future<void> save(ThemePreferences preferences) async {
+    throw StateError('主题偏好存储不可用。');
+  }
+}
+
+class MemoryThemePreferencesStore implements ThemePreferencesStore {
+  MemoryThemePreferencesStore([this.preferences = const ThemePreferences()]);
+
+  ThemePreferences preferences;
+  Object? saveError;
+
+  @override
+  Future<ThemePreferences> load() async => preferences;
+
+  @override
+  Future<void> save(ThemePreferences value) async {
+    if (saveError case final error?) throw error;
+    preferences = value;
+  }
 }

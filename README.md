@@ -39,6 +39,16 @@ adb install -r build/app/outputs/flutter-apk/app-debug.apk
 adb shell am start -n app.diary008.diary008/.MainActivity
 ```
 
+### 可复用的 arm64 Debug APK 构建脚本
+
+在仓库根目录运行（也可从其他目录通过绝对路径启动）：
+
+```sh
+./scripts/build_debug_arm64_apk.sh
+```
+
+脚本会从自身位置定位项目根目录，准备 Flutter 依赖并构建仅含 `arm64-v8a` 原生库的 Debug APK；会自动发现 Flutter、JDK 17 与 Android SDK。也可用 `FLUTTER_BIN` 或 `FLUTTER_ROOT`、`JAVA_HOME`、`ANDROID_SDK_ROOT`（或 `ANDROID_HOME`）指定工具位置。成功后会验证 APK ABI，并打印绝对路径、字节数及 SHA-256；本脚本产物为 `build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`，不会上传或发布。
+
 APK：`build/app/outputs/flutter-apk/app-debug.apk`，当前版本 `0.4.0+4`，仅为调试包，不是已签名上架版本。应用显示名称为“家族笔记”。首次打开为新空白页，无预填断言。
 
 ## 使用与规则

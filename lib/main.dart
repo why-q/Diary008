@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui' show PlatformDispatcher;
 
+import 'package:flutter/foundation.dart';
 import 'package:diary008/volume_name_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +10,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'app_language.dart';
+import 'app_startup.dart';
 import 'app_licenses.dart';
 import 'app_localizations.dart';
 import 'entry_editor.dart';
@@ -27,10 +28,10 @@ import 'reminder_settings.dart';
 import 'data_settings.dart';
 import 'diagnostics.dart';
 import 'theme_preferences.dart';
-import 'theme_settings.dart';
+import 'theme_preferences_controller.dart';
 import 'font_preferences.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   registerAppFontLicenses();
   FlutterError.onError = (details) {
@@ -47,15 +48,47 @@ void main() {
     return false;
   };
   unawaited(Diagnostics.record('app.start', 'version=0.4.0+4'));
+  final fontController = FontPreferenceController();
+  LanguageSettingsStore languageStore;
+  ThemePreferencesStore themeStore;
+  try {
+    languageStore =
+        await FileLanguageSettingsStore.inApplicationDocumentsDirectory();
+  } catch (_) {
+    languageStore = MemoryLanguageSettingsStore();
+  }
+  try {
+    themeStore =
+        await FileThemePreferencesStore.inApplicationDocumentsDirectory();
+  } catch (_) {
+    // Keep theme writes observable: an in-memory fallback would appear saved
+    // but be lost at shutdown. The controller safely rolls back failed writes.
+    themeStore = const UnavailableThemePreferencesStore();
+  }
+  final startup = await loadDiaryStartupPreferences(
+    languageStore: languageStore,
+    themeStore: themeStore,
+    fontPreferences: fontController,
+  );
+  final systemDark =
+      startup.themePreferences.mode == JournalThemeMode.dark ||
+      (startup.themePreferences.mode == JournalThemeMode.system &&
+          PlatformDispatcher.instance.platformBrightness == Brightness.dark);
+  final startupColors = JournalTheme.fromPalette(
+    startup.themePreferences.palette,
+    systemDark ? Brightness.dark : Brightness.light,
+  );
   SystemChrome.setSystemUIOverlayStyle(
-    const SystemUiOverlayStyle(
+    SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
-      statusBarIconBrightness: Brightness.dark,
-      systemNavigationBarColor: paper,
-      systemNavigationBarIconBrightness: Brightness.dark,
+      statusBarIconBrightness: systemDark ? Brightness.light : Brightness.dark,
+      systemNavigationBarColor: startupColors.paper,
+      systemNavigationBarIconBrightness: systemDark
+          ? Brightness.light
+          : Brightness.dark,
     ),
   );
-  runApp(const DiaryApp());
+  runApp(DiaryApp(startup: startup));
 }
 
 @pragma('vm:entry-point')
@@ -79,7 +112,9 @@ Future<void> reminderBackgroundMain() async {
 }
 
 class DiaryApp extends StatefulWidget {
-  const DiaryApp({super.key});
+  const DiaryApp({super.key, this.startup});
+
+  final DiaryStartupPreferences? startup;
 
   @override
   State<DiaryApp> createState() => _DiaryAppState();
@@ -89,25 +124,41 @@ class _DiaryAppState extends State<DiaryApp> {
   AppLanguage _language = AppLanguage.system;
   LanguageSettingsStore? _languageStore;
   ThemePreferences _themePreferences = const ThemePreferences();
-  Future<void> _themeSaveQueue = Future<void>.value();
-  int _themeRevision = 0;
-  ThemePreferences? _pendingThemePreferences;
-  final _fontPreferenceController = FontPreferenceController();
+  late final ThemePreferencesController _themePreferencesController;
+  late final ValueNotifier<ThemePreferences> _themePreferencesListenable;
+  late final FontPreferenceController _fontPreferenceController;
 
   @override
   void initState() {
     super.initState();
-    unawaited(_loadLanguage());
-    unawaited(_loadThemePreferences());
-    unawaited(_fontPreferenceController.load());
+    final startup = widget.startup;
+    _fontPreferenceController =
+        startup?.fontPreferenceController ?? FontPreferenceController();
+    _language = startup?.language ?? AppLanguage.system;
+    _languageStore = startup?.languageStore;
+    _themePreferences = startup?.themePreferences ?? const ThemePreferences();
+    _themePreferencesListenable = ValueNotifier(_themePreferences);
+    _themePreferencesController = ThemePreferencesController(
+      startup?.themeStore ?? MemoryThemePreferencesStore(),
+      initial: _themePreferences,
+    );
+    if (startup == null) {
+      unawaited(_loadLanguage());
+      unawaited(_loadThemePreferences());
+      unawaited(_fontPreferenceController.load());
+    }
   }
 
   Future<void> _loadLanguage() async {
-    final store =
-        await FileLanguageSettingsStore.inApplicationDocumentsDirectory();
-    final language = await store.load();
-    _languageStore = store;
-    if (mounted) setState(() => _language = language);
+    try {
+      final store =
+          await FileLanguageSettingsStore.inApplicationDocumentsDirectory();
+      final language = await store.load();
+      _languageStore = store;
+      if (mounted) setState(() => _language = language);
+    } catch (_) {
+      if (mounted) setState(() => _language = AppLanguage.system);
+    }
   }
 
   Future<void> _changeLanguage(AppLanguage language) async {
@@ -118,14 +169,14 @@ class _DiaryAppState extends State<DiaryApp> {
   }
 
   Future<void> _loadThemePreferences() async {
-    final revision = _themeRevision;
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final preferences = await readThemePreferences(
-        File('${directory.path}/theme_preferences.json'),
-      );
-      if (mounted && revision == _themeRevision) {
+      final store =
+          await FileThemePreferencesStore.inApplicationDocumentsDirectory();
+      final preferences = await store.load();
+      final loaded = await _themePreferencesController.change(preferences);
+      if (mounted && loaded) {
         setState(() => _themePreferences = preferences);
+        _themePreferencesListenable.value = preferences;
       }
     } catch (error, stack) {
       await Diagnostics.record(
@@ -135,32 +186,25 @@ class _DiaryAppState extends State<DiaryApp> {
     }
   }
 
-  void _changeThemePreferences(ThemePreferences preferences) {
-    if (_themePreferences == preferences) return;
-    _themeRevision++;
-    _pendingThemePreferences = preferences;
+  void _applyThemePreferences(ThemePreferences preferences) {
     setState(() => _themePreferences = preferences);
-    _themeSaveQueue = _themeSaveQueue.then((_) async {
-      final toSave = _pendingThemePreferences;
-      _pendingThemePreferences = null;
-      if (toSave == null) return;
-      try {
-        final directory = await getApplicationDocumentsDirectory();
-        await writeThemePreferences(
-          File('${directory.path}/theme_preferences.json'),
-          toSave,
-        );
-      } catch (error, stack) {
-        await Diagnostics.record(
-          'theme.preferences.write.failed',
-          '${error.runtimeType}\n$stack',
-        );
-      }
-    });
+    _themePreferencesListenable.value = preferences;
+  }
+
+  Future<bool> _saveThemePreferences(ThemePreferences preferences) async {
+    final saved = await _themePreferencesController.change(preferences);
+    if (mounted && !saved) {
+      final rollback = _themePreferencesController.current;
+      setState(() => _themePreferences = rollback);
+      _themePreferencesListenable.value = rollback;
+    }
+    return saved;
   }
 
   @override
   void dispose() {
+    _themePreferencesController.dispose();
+    _themePreferencesListenable.dispose();
     _fontPreferenceController.dispose();
     super.dispose();
   }
@@ -225,7 +269,10 @@ class _DiaryAppState extends State<DiaryApp> {
           language: _language,
           onLanguageChanged: _changeLanguage,
           themePreferences: _themePreferences,
-          onThemeChanged: _changeThemePreferences,
+          themePreferencesListenable: _themePreferencesListenable,
+          onThemeChanged: _applyThemePreferences,
+          onThemeSave: _saveThemePreferences,
+          onThemeSaveFailed: () => _themePreferencesController.current,
           fontPreferenceController: _fontPreferenceController,
         ),
       ),
@@ -239,14 +286,20 @@ class NotebookPage extends StatefulWidget {
     required this.language,
     required this.onLanguageChanged,
     required this.themePreferences,
+    required this.themePreferencesListenable,
     required this.onThemeChanged,
+    required this.onThemeSave,
+    required this.onThemeSaveFailed,
     required this.fontPreferenceController,
   });
 
   final AppLanguage language;
   final Future<void> Function(AppLanguage language) onLanguageChanged;
   final ThemePreferences themePreferences;
+  final ValueListenable<ThemePreferences> themePreferencesListenable;
   final ValueChanged<ThemePreferences> onThemeChanged;
+  final Future<bool> Function(ThemePreferences) onThemeSave;
+  final ThemePreferences Function() onThemeSaveFailed;
   final FontPreferenceController fontPreferenceController;
   @override
   State<NotebookPage> createState() => _NotebookPageState();
@@ -733,33 +786,50 @@ class _NotebookPageState extends State<NotebookPage>
   void _showDataSettings() {
     showModalBottomSheet<void>(
       context: context,
-      backgroundColor: journalThemeOf(context).paper,
+      backgroundColor: Colors.transparent,
       isScrollControlled: true,
       isDismissible: true,
       constraints: BoxConstraints(
         maxHeight: MediaQuery.sizeOf(context).height * 0.85,
       ),
       enableDrag: false,
-      builder: (_) => DataSettings(
-        onTheme: _showThemeSettings,
-        fontPreferenceController: widget.fontPreferenceController,
-        onDestroy: _destroyAllRecords,
-        onExport: _exportBackup,
-        onImport: _importBackup,
-        language: widget.language,
-        onLanguageChanged: widget.onLanguageChanged,
-      ),
-    );
-  }
-
-  void _showThemeSettings() {
-    showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: journalThemeOf(context).paper,
-      isScrollControlled: true,
-      builder: (_) => ThemeSettings(
-        preferences: widget.themePreferences,
-        onChanged: widget.onThemeChanged,
+      builder: (_) => AnimatedBuilder(
+        animation: widget.fontPreferenceController,
+        builder: (context, _) => ValueListenableBuilder<ThemePreferences>(
+          valueListenable: widget.themePreferencesListenable,
+          builder: (context, preferences, child) {
+            final platformBrightness = MediaQuery.platformBrightnessOf(context);
+            final brightness = switch (preferences.mode) {
+              JournalThemeMode.system => platformBrightness,
+              JournalThemeMode.light => Brightness.light,
+              JournalThemeMode.dark => Brightness.dark,
+            };
+            final colors = JournalTheme.fromPalette(
+              preferences.palette,
+              brightness,
+            );
+            final theme = applyFontPreference(
+              journalThemeData(preferences.palette, brightness),
+              widget.fontPreferenceController.preference,
+            );
+            return Theme(
+              data: theme,
+              child: Material(color: colors.paper, child: child!),
+            );
+          },
+          child: DataSettings(
+            fontPreferenceController: widget.fontPreferenceController,
+            themePreferences: widget.themePreferences,
+            onThemeChanged: widget.onThemeChanged,
+            onThemeSave: widget.onThemeSave,
+            onThemeSaveFailed: widget.onThemeSaveFailed,
+            onDestroy: _destroyAllRecords,
+            onExport: _exportBackup,
+            onImport: _importBackup,
+            language: widget.language,
+            onLanguageChanged: widget.onLanguageChanged,
+          ),
+        ),
       ),
     );
   }

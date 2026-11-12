@@ -1,18 +1,48 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app_localizations.dart';
 import 'journal_theme.dart';
 import 'theme_preferences.dart';
 
+void reportThemeSaveFailure(BuildContext context) {
+  final colors = journalThemeOf(context);
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(
+          AppLocalizations.of(context).themeSaveFailed,
+          style: const TextStyle(fontSize: 17),
+        ),
+        backgroundColor: colors.ink,
+        duration: const Duration(seconds: 4),
+      ),
+    );
+}
+
 class ThemeSettings extends StatefulWidget {
   const ThemeSettings({
     super.key,
     required this.preferences,
     required this.onChanged,
+    this.onSave,
+    this.onSaveFailed,
+    this.showHeading = true,
+    this.showDescription = true,
+    this.showCloseButton = true,
+    this.embedded = false,
   });
 
   final ThemePreferences preferences;
   final ValueChanged<ThemePreferences> onChanged;
+  final Future<bool> Function(ThemePreferences)? onSave;
+  final ThemePreferences Function()? onSaveFailed;
+  final bool showHeading;
+  final bool showDescription;
+  final bool showCloseButton;
+  final bool embedded;
 
   @override
   State<ThemeSettings> createState() => _ThemeSettingsState();
@@ -39,6 +69,20 @@ class _ThemeSettingsState extends State<ThemeSettings> {
     final next = _preferences.copyWith(mode: mode, palette: palette);
     setState(() => _preferences = next);
     widget.onChanged(next);
+    final onSave = widget.onSave;
+    if (onSave == null) return;
+    final onSaveFailed = widget.onSaveFailed;
+    unawaited(
+      onSave(next).then((saved) {
+        if (saved) return;
+        // Report through the parent even if this bottom sheet was dismissed.
+        final rollback = onSaveFailed?.call();
+        if (!mounted) return;
+        if (_preferences == next) {
+          setState(() => _preferences = rollback ?? widget.preferences);
+        }
+      }),
+    );
   }
 
   @override
@@ -52,6 +96,96 @@ class _ThemeSettingsState extends State<ThemeSettings> {
   Widget _buildContent(BuildContext context) {
     final colors = journalThemeOf(context);
     final l10n = AppLocalizations.of(context);
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (widget.showHeading)
+          Text(
+            l10n.appearance,
+            style: TextStyle(fontSize: 25, color: colors.ink),
+          ),
+        if (widget.showDescription) ...[
+          const SizedBox(height: 8),
+          Text(
+            l10n.appearanceDescription,
+            style: TextStyle(fontSize: 14, height: 1.6, color: colors.fadedInk),
+          ),
+          const SizedBox(height: 14),
+        ],
+        Text(l10n.displayMode, style: TextStyle(color: colors.fadedInk)),
+        RadioGroup<JournalThemeMode>(
+          groupValue: _preferences.mode,
+          onChanged: (value) {
+            if (value != null) _change(mode: value);
+          },
+          child: Column(
+            children: [
+              RadioListTile<JournalThemeMode>(
+                key: const Key('theme-mode-system'),
+                value: JournalThemeMode.system,
+                title: Text(l10n.themeSystem),
+                subtitle: Text(l10n.themeSystemDescription),
+                contentPadding: EdgeInsets.zero,
+                activeColor: colors.accent,
+              ),
+              RadioListTile<JournalThemeMode>(
+                key: const Key('theme-mode-light'),
+                value: JournalThemeMode.light,
+                title: Text(l10n.themeLight),
+                contentPadding: EdgeInsets.zero,
+                activeColor: colors.accent,
+              ),
+              RadioListTile<JournalThemeMode>(
+                key: const Key('theme-mode-dark'),
+                value: JournalThemeMode.dark,
+                title: Text(l10n.themeDark),
+                contentPadding: EdgeInsets.zero,
+                activeColor: colors.accent,
+              ),
+            ],
+          ),
+        ),
+        const Divider(),
+        const SizedBox(height: 8),
+        Text(l10n.paperPalette, style: TextStyle(color: colors.fadedInk)),
+        RadioGroup<JournalPalette>(
+          groupValue: _preferences.palette,
+          onChanged: (value) {
+            if (value != null) _change(palette: value);
+          },
+          child: Column(
+            children: [
+              _paletteOption(
+                context,
+                JournalPalette.antiquePaper,
+                l10n.antiquePaper,
+                l10n.antiquePaperDescription,
+              ),
+              _paletteOption(
+                context,
+                JournalPalette.plainWhite,
+                l10n.plainWhite,
+                l10n.plainWhiteDescription,
+              ),
+              _paletteOption(
+                context,
+                JournalPalette.cyanPaper,
+                l10n.cyanPaper,
+                l10n.cyanPaperDescription,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (widget.showCloseButton)
+          TextButton(
+            key: const Key('theme-settings-close'),
+            onPressed: () => Navigator.pop(context),
+            child: Text(l10n.close),
+          ),
+      ],
+    );
+    if (widget.embedded) return content;
     return SafeArea(
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -59,95 +193,7 @@ class _ThemeSettingsState extends State<ThemeSettings> {
         ),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                l10n.appearance,
-                style: TextStyle(fontSize: 25, color: colors.ink),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                l10n.appearanceDescription,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.6,
-                  color: colors.fadedInk,
-                ),
-              ),
-              const SizedBox(height: 14),
-              Text(l10n.displayMode, style: TextStyle(color: colors.fadedInk)),
-              RadioGroup<JournalThemeMode>(
-                groupValue: _preferences.mode,
-                onChanged: (value) {
-                  if (value != null) _change(mode: value);
-                },
-                child: Column(
-                  children: [
-                    RadioListTile<JournalThemeMode>(
-                      key: const Key('theme-mode-system'),
-                      value: JournalThemeMode.system,
-                      title: Text(l10n.themeSystem),
-                      subtitle: Text(l10n.themeSystemDescription),
-                      contentPadding: EdgeInsets.zero,
-                      activeColor: colors.accent,
-                    ),
-                    RadioListTile<JournalThemeMode>(
-                      key: const Key('theme-mode-light'),
-                      value: JournalThemeMode.light,
-                      title: Text(l10n.themeLight),
-                      contentPadding: EdgeInsets.zero,
-                      activeColor: colors.accent,
-                    ),
-                    RadioListTile<JournalThemeMode>(
-                      key: const Key('theme-mode-dark'),
-                      value: JournalThemeMode.dark,
-                      title: Text(l10n.themeDark),
-                      contentPadding: EdgeInsets.zero,
-                      activeColor: colors.accent,
-                    ),
-                  ],
-                ),
-              ),
-              const Divider(),
-              const SizedBox(height: 8),
-              Text(l10n.paperPalette, style: TextStyle(color: colors.fadedInk)),
-              RadioGroup<JournalPalette>(
-                groupValue: _preferences.palette,
-                onChanged: (value) {
-                  if (value != null) _change(palette: value);
-                },
-                child: Column(
-                  children: [
-                    _paletteOption(
-                      context,
-                      JournalPalette.antiquePaper,
-                      l10n.antiquePaper,
-                      l10n.antiquePaperDescription,
-                    ),
-                    _paletteOption(
-                      context,
-                      JournalPalette.plainWhite,
-                      l10n.plainWhite,
-                      l10n.plainWhiteDescription,
-                    ),
-                    _paletteOption(
-                      context,
-                      JournalPalette.cyanPaper,
-                      l10n.cyanPaper,
-                      l10n.cyanPaperDescription,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextButton(
-                key: const Key('theme-settings-close'),
-                onPressed: () => Navigator.pop(context),
-                child: Text(l10n.close),
-              ),
-            ],
-          ),
+          child: content,
         ),
       ),
     );

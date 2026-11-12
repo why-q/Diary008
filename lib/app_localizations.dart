@@ -86,6 +86,9 @@ class AppLocalizations {
   String get saveFailed => isEnglish
       ? 'The entry could not be saved. Please try again.'
       : '落笔未能保存，请重试。';
+  String get themeSaveFailed => isEnglish
+      ? 'Theme settings could not be saved. Please try again.'
+      : '外观设置未能保存，请重试。';
   String get volumeExpired => isEnglish
       ? 'This volume is archived and a new blank page is open. Tap the volume number to browse older volumes.'
       : '本卷已封存，新的空白页已开启。点击卷号可翻阅旧卷。';

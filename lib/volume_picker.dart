@@ -79,9 +79,10 @@ class VolumePicker extends StatelessWidget {
                                       l10n.dateFormat(
                                         archive.archivedAt.toLocal(),
                                       ),
-                                      style: const TextStyle(
+                                      key: const Key('archived-volume-date'),
+                                      style: TextStyle(
                                         fontSize: 14,
-                                        color: fadedInk,
+                                        color: journalThemeOf(context).fadedInk,
                                       ),
                                     ),
                                   ],
@@ -90,6 +91,7 @@ class VolumePicker extends StatelessWidget {
                             ),
                           ),
                           TextButton(
+                            key: const Key('archive-delete'),
                             onPressed: () =>
                                 _confirmDeleteArchive(context, archive),
                             child: Text(l10n.delete),
@@ -127,7 +129,8 @@ Future<void> _confirmDeleteArchive(
   final confirmed = await showDialog<bool>(
     context: sheetContext,
     builder: (context) => AlertDialog(
-      backgroundColor: paper,
+      key: const Key('archive-delete-confirmation'),
+      backgroundColor: journalThemeOf(context).paper,
       title: Text(l10n.deleteArchivedTitle),
       content: Text(
         l10n.deleteArchivedContent(title),
@@ -135,6 +138,7 @@ Future<void> _confirmDeleteArchive(
       ),
       actions: [
         TextButton(
+          key: const Key('archive-delete-cancel'),
           onPressed: () => Navigator.pop(context, false),
           child: Text(l10n.cancel),
         ),

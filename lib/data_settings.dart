@@ -5,22 +5,28 @@ import 'app_localizations.dart';
 import 'diagnostics.dart';
 import 'journal_theme.dart';
 import 'font_preferences.dart';
-
-void _noTheme() {}
+import 'theme_preferences.dart';
+import 'theme_settings.dart';
 
 class DataSettings extends StatefulWidget {
   const DataSettings({
     super.key,
-    this.onTheme = _noTheme,
     required this.fontPreferenceController,
+    required this.themePreferences,
+    required this.onThemeChanged,
+    required this.onThemeSave,
+    required this.onThemeSaveFailed,
     required this.onDestroy,
     required this.onExport,
     required this.onImport,
     required this.language,
     required this.onLanguageChanged,
   });
-  final VoidCallback onTheme;
   final FontPreferenceController fontPreferenceController;
+  final ThemePreferences themePreferences;
+  final ValueChanged<ThemePreferences> onThemeChanged;
+  final Future<bool> Function(ThemePreferences) onThemeSave;
+  final ThemePreferences Function() onThemeSaveFailed;
   final Future<String> Function() onDestroy;
   final Future<String> Function() onExport;
   final Future<String> Function() onImport;
@@ -145,14 +151,8 @@ class _DataSettingsState extends State<DataSettings> {
               ),
             ),
             const SizedBox(height: 8),
-            TextButton(
-              onPressed: _busy ? null : widget.onTheme,
-              child: Text(_l10n.appearance),
-            ),
-            const Divider(),
-            const SizedBox(height: 8),
             Text(
-              _l10n.dataDiagnostics,
+              _l10n.appearance,
               style: TextStyle(
                 fontSize: 20,
                 color: journalThemeOf(context).ink,
@@ -181,7 +181,28 @@ class _DataSettingsState extends State<DataSettings> {
             ),
             const SizedBox(height: 16),
             FontPreferenceSettings(controller: widget.fontPreferenceController),
+            ThemeSettings(
+              preferences: widget.themePreferences,
+              onChanged: widget.onThemeChanged,
+              onSave: widget.onThemeSave,
+              onSaveFailed: () {
+                reportThemeSaveFailure(context);
+                return widget.onThemeSaveFailed();
+              },
+              showHeading: false,
+              showDescription: false,
+              showCloseButton: false,
+              embedded: true,
+            ),
             const Divider(height: 32),
+            Text(
+              _l10n.dataDiagnostics,
+              style: TextStyle(
+                fontSize: 20,
+                color: journalThemeOf(context).ink,
+              ),
+            ),
+            const SizedBox(height: 8),
             TextButton(
               onPressed: _busy ? null : _showPrivacyNotice,
               child: Text(_l10n.privacyNotice),

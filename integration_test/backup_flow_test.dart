@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:diary008/main.dart';
 import 'package:diary008/notebook.dart';
@@ -8,7 +7,8 @@ import 'package:diary008/backup_encryption.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -16,9 +16,8 @@ void main() {
   testWidgets(
     'restore validates before confirmation and atomically replaces all volumes',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       final now = DateTime.now();
       final old = Notebook.empty().add(
         '导入前记录',
@@ -155,11 +154,7 @@ void main() {
       } finally {
         messenger.setMockMethodCallHandler(backupChannel, null);
         await tester.pumpWidget(const SizedBox.shrink());
-        if (original == null) {
-          if (await file.exists()) await file.delete();
-        } else {
-          await file.writeAsString(original);
-        }
+        await notebook.restore();
       }
     },
   );

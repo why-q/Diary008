@@ -26,12 +26,11 @@ resolve_command() {
   local result
   if [[ "$requested" == */* ]]; then
     result="$requested"
-    [[ "$result" == /* ]] || result="$CALLER_DIR/$result"
   else
     result="$(command -v "$requested" 2>/dev/null || true)"
     [[ -n "$result" ]] || return 1
-    [[ "$result" == /* ]] || result="$CALLER_DIR/$result"
   fi
+  [[ "$result" == /* ]] || result="$CALLER_DIR/$result"
   [[ -x "$result" ]] || return 1
   printf '%s\n' "$result"
 }

@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:diary008/journal_page.dart';
 import 'package:diary008/main.dart';
@@ -7,7 +6,8 @@ import 'package:diary008/notebook.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -15,9 +15,8 @@ void main() {
   testWidgets('large notebook bounds mounted paragraphs and reaches both ends', (
     tester,
   ) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/notebook.json');
-    final original = await file.exists() ? await file.readAsBytes() : null;
+    final notebook = await snapshotNotebook();
+    final file = notebook.file;
     final now = DateTime.now();
     final book = Notebook(
       volume: 1,
@@ -80,11 +79,7 @@ void main() {
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pumpAndSettle();
-      if (original != null) {
-        await file.writeAsBytes(original);
-      } else if (await file.exists()) {
-        await file.delete();
-      }
+      await notebook.restore();
     }
   });
 }

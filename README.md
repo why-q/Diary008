@@ -2,36 +2,19 @@
 
 Android 专用 Flutter 原型。连续长篇日记排版，纸张底纹、墨色与多款中英文排版字体。无账号、后端或 AI 解析；不支持 Web。
 
-> **当前集成源码验证**（`0.4.0+4`）：`flutter analyze` 无问题；`flutter test --reporter compact` 的 84 项全部通过。本次集成尚未构建统一 APK，也未对三项功能合并后的 APK 进行模拟器或真机烟测；完整 Android `integration_test`、系统备份恢复及公开更新流程仍未验证。
-> 当前 Release 配置仍使用 Android 调试密钥，**不可作为公开发布或持续更新包**。
->
-> 先读 [`公开测试与发布说明`](#公开测试与发布说明)、[`PRIVACY.md`](PRIVACY.md) 与 [`发布检查清单`](docs/release-checklist.md)。
+当前版本：`0.4.0+4`。Release 仍用 Android 调试密钥签名，仅供本地测试。参见[验证状态](#验证)和[发布检查清单](docs/release-checklist.md)。
 
-## 本机开发环境
+## 开发与构建
 
-已通过 Homebrew 安装 Flutter、Android Studio、android-commandlinetools。Flutter 3.47.7 / Dart 3.13.5；Android API 36 / Build Tools 36.0.0；模拟器为 `Diary008_API_36`（Pixel 7、arm64 Google APIs）。构建时 Flutter/Gradle 会按插件需求安装额外 SDK 组件。
-
-Flutter 位于 `/opt/homebrew/share/flutter`，命令已链接至 `/opt/homebrew/bin`。`~/.zprofile` 已配置：
-
-```sh
-export ANDROID_HOME="$HOME/Library/Android/sdk"
-export ANDROID_SDK_ROOT="$ANDROID_HOME"
-export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
-export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-```
-
-新开终端或执行 `source ~/.zprofile`。Flutter 本机配置也已指定上述 SDK 与 JDK。原 Homebrew `adb` 仍保留，优先使用 SDK 下的 `adb`。Xcode 未配置；不影响 Android。CocoaPods 已安装，但本项目不依赖 iOS 工具链。
-
-## 启动
+需要 Flutter（项目记录的版本为 3.47.7 / Dart 3.13.5）、JDK 17 和 Android SDK（开发环境使用 API 36 / Build Tools 36.0.0）。安装 Android Studio 或 Android 命令行工具后，用 `flutter doctor` 检查环境，并启动 Android 模拟器或连接已授权 USB 调试的测试设备。
 
 ```sh
 flutter pub get
-flutter emulators --launch Diary008_API_36
 flutter devices
 flutter run -d emulator-5554
 ```
 
-如果模拟器编号不是 `emulator-5554`，使用 `flutter devices` 显示的 Android ID。也可在 Android Studio 打开 `android/`，选择该 AVD。真机需开启开发者选项和 USB 调试，确认设备授权后使用 `flutter run -d <设备ID>`。
+用 `flutter devices` 显示的实际设备 ID 替换 `emulator-5554`。如需单独安装调试包：
 
 ```sh
 flutter build apk --debug
@@ -39,17 +22,9 @@ adb install -r build/app/outputs/flutter-apk/app-debug.apk
 adb shell am start -n app.diary008.diary008/.MainActivity
 ```
 
-### 可复用的 arm64 Debug APK 构建脚本
+### arm64 Debug APK
 
-在仓库根目录运行（也可从其他目录通过绝对路径启动）：
-
-```sh
-./scripts/build_debug_arm64_apk.sh
-```
-
-脚本会从自身位置定位项目根目录，准备 Flutter 依赖并构建仅含 `arm64-v8a` 原生库的 Debug APK；会自动发现 Flutter、JDK 17 与 Android SDK。也可用 `FLUTTER_BIN` 或 `FLUTTER_ROOT`、`JAVA_HOME`、`ANDROID_SDK_ROOT`（或 `ANDROID_HOME`）指定工具位置。成功后会验证 APK ABI，并打印绝对路径、字节数及 SHA-256；本脚本产物为 `build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`，不会上传或发布。
-
-APK：`build/app/outputs/flutter-apk/app-debug.apk`，当前版本 `0.4.0+4`，仅为调试包，不是已签名上架版本。应用显示名称为“家族笔记”。首次打开为新空白页，无预填断言。
+运行 `./scripts/build_debug_arm64_apk.sh`。脚本自动查找 Flutter、JDK 17 和 Android SDK，也支持用 `FLUTTER_BIN`／`FLUTTER_ROOT`、`JAVA_HOME`、`ANDROID_SDK_ROOT`／`ANDROID_HOME` 指定路径。输出 `build/app/outputs/flutter-apk/app-arm64-v8a-debug.apk`，验证只含 `arm64-v8a` 原生库，并报告大小及 SHA-256；不上传或发布。
 
 ## 使用与规则
 
@@ -64,7 +39,7 @@ APK：`build/app/outputs/flutter-apk/app-debug.apk`，当前版本 `0.4.0+4`，�
 - 左侧筛选菜单提供“全部 / 履行中 / 已履行 / 未履行”。当前卷在打开应用、新建及自动换卷、返回当前卷时默认“履行中”；同一卷内可手动切换，历史卷默认“全部”。任一成员匹配便显示整组，因此正在履行的新断言仍带上关联原文，不承诺每个可见成员自身都是待履行。已整体履行或以解释结束的组默认隐藏，切换“全部”仍可阅读，筛选不删除数据。
 - 点击右上角卷号打开“翻阅卷册”，可选择历史卷、修改当前卷名、新建一卷，或删除已封存的卷。删除前必须确认；确认后该卷及其记录永久消失，不能恢复。编号大于被删卷的历史卷和当前卷各减一，卷号保持连续。条目正文、条目编号和修订链接保持不变。正在书写的当前卷不能删除。若当时正在阅读被删的卷，则回到当前卷的履行中视图；若正在阅读更后的历史卷，仍停留在同一卷的新编号上。卷名以“卷一 · 晨间计划”显示，去掉首尾空白，留空只显示卷号。名称只保存在对应卷上，不能直接改编号，也不能改历史卷名称。
 - 只有一个可编辑的当前卷。“新建一卷”可填写下一卷名称，确认前明确提示旧卷会永久封存、不能继续编辑且不再提醒；取消不会保存任何改动。确认后完整保留旧卷，打开下一卷空白页。即使旧卷为空，也按明确确认的操作封存；不会恢复旧卷编辑。
-- 冷启动或从后台回到前台时检查是否逾期；任意待处理断言逾期，会完整封存旧卷后开启空白卷，不再每秒轮询。已履行及已解释内容本身不会触发失效。落笔、履行、修订等操作前仍检查有效性，防止应用一直打开跨过期限后继续改写旧卷。恢复前台时若正在保存，会在操作结束后补做检查；后台提醒重排只读笔记，不主动封卷。
+- 冷启动或回到前台时检查是否逾期；任意待处理断言逾期，会完整封存旧卷并开启空白卷。已履行及已解释内容本身不会触发失效。落笔、履行、修订等操作前仍检查有效性，防止应用一直打开跨过期限后继续改写旧卷。恢复前台时若正在保存，会在操作结束后补做检查；后台提醒重排只读笔记，不主动封卷。
 - 历史卷只读：没有羽毛笔入口，不接受履行/修订的滑动和无障碍动作；可排序、筛选。“主动封存”显示实际封存时间，不伪造逾期失败；其中未结束的断言为“随卷封存”。逾期封存才将最早期限触发者标为“未如期履行”，其余尚未到期者随卷封存。历史筛选状态冻结于失效或主动封存时，不随今天变化。
 - 数据以 JSON 原子替换方式保存在应用私有文档目录 `notebook.json`。格式版本 4 在当前卷和历史卷加入 `volumeName`（旧数据默认空），新增 `manualClosure` 原因；主动封存的 `invalidatedAt` 为 null、失败断言集合为空，逾期卷保留真实失效时刻。UTC 瞬间与 `YYYY-MM-DD` 日历日期的区分保持不变。启动时原子迁移旧格式，不重排卷号、不丢失正文/修订链；无 offset 的旧时间戳仍按首次迁移时的设备时区解释。卸载/清除应用数据仍会删除所有卷。
 
@@ -79,14 +54,14 @@ APK：`build/app/outputs/flutter-apk/app-debug.apk`，当前版本 `0.4.0+4`，�
 
 - 自动模式保留原有节奏：期限至多7个日历日只在截止当天提醒；更长期限按持久化创建日 `createdOn` 计算第1、3、7、14、30、60、90、180、270天及截止当天，超过30天另加截止前7天。只为当前卷尚待履行条目安排，不受正在翻阅的卷影响，并在当前卷最早期限之前截断。履行、解释、替代或封卷后重算日期并移除不再需要的提醒；同日仍有其他条目触发时保留该日的一条提醒。改卷名不改变提醒日期身份。
 - 每日模式只保留一个下一次原生闹钟。到点后由原生接收器提交现有后台作业，按保存的当地钟点重新计算下一次，不使用固定24小时或从上次归一化时间继续累加。夏令时跳过的钟点按时区库顺延到当日有效时间，次日恢复原设定钟点。重启、换时区或修改系统日期后按设备的新时间重排；不补发已过日期。
-- Android 13 及以上点击“启用通知提醒”请求 `POST_NOTIFICATIONS` 运行时权限；Android 12L/API 32 及以下没有该授权弹窗。若应用通知已关闭，“启用通知提醒”或“系统通知设置”会打开应用通知设置；若应用通知已开启但“断言提醒”通道关闭，则 Android 8.0/API 26 及以上直达该通道设置，系统不支持时依次退回应用通知页和应用详情页，较旧版本打开应用详情页。Android 13+ 已获授权但应用或通道关闭时也会引导至相应设置；权限请求未获授权时仍可使用“系统通知设置”。返回应用后会重新检查状态。不同 Android/OEM 的设置界面可能不同；当前验证环境为 Android 11/API 30 AOSP 模拟器，OnePlus HydrogenOS 尚未实测。首次启动不强制请求权限；通知关闭时提醒设置仍保留。提醒模式与每日钟点独立保存在应用私有支持目录 `reminder_preferences.json`，不是笔记备份的一部分；没有旧设置文件时默认自动模式，读取失败不会悄悄改成其他时间。
+- Android 13 及以上点击“启用通知提醒”请求 `POST_NOTIFICATIONS` 运行时权限；Android 12L/API 32 及以下没有该授权弹窗。若应用通知已关闭，“启用通知提醒”或“系统通知设置”会打开应用通知设置；若应用通知已开启但“断言提醒”通道关闭，则 Android 8.0/API 26 及以上直达该通道设置，系统不支持时依次退回应用通知页和应用详情页，较旧版本打开应用详情页。Android 13+ 已获授权但应用或通道关闭时也会引导至相应设置；权限请求未获授权时仍可使用“系统通知设置”。返回应用后会重新检查状态。不同 Android 版本和厂商的设置界面可能不同。首次启动不强制请求权限；通知关闭时提醒设置仍保留。提醒模式与每日钟点独立保存在应用私有支持目录 `reminder_preferences.json`，不是笔记备份的一部分；没有旧设置文件时默认自动模式，读取失败不会悄悄改成其他时间。
 - 使用 `flutter_local_notifications` 显示通知；自动计划和每日单次闹钟均采用 AlarmManager 的非精确、允许空闲模式，不申请精确闹钟权限。省电、厂商后台限制和用户强制停止应用可能阻止或延后闹钟及后台作业，**不保证所选时刻准点送达**。时区／时间变化、设备重启、应用覆盖更新及每日闹钟到点会提交短时 JobScheduler 作业：前台复用当前引擎，进程退出时启动无界面引擎；后台不迁移或覆盖笔记。失败按现有系统作业退避重试，强制停止后需重新打开应用恢复。
 - Android Release APK 会使用 R8 收缩未引用资源；本地通知插件通过资源名动态查找默认图标，`android/app/src/main/res/raw/keep.xml` 因此必须保留 `@drawable/ic_journal_notification`。缺少此规则会让 Release 初始化返回 `invalid_icon`，导致提醒启用和排程不可用；系统通知设置入口独立于通知插件初始化。
-- 通知只显示通用提示，不含正文或某一条目的剩余天数。点击自动或每日提醒都回到**当前卷的履行中视图**，不再定位某条断言或旧卷；不会重建丢失的记录。保存笔记与通知排程错误分别显示。模式切换使用既有后台重排屏障，先停止旧任务，再保存并替换排程。
+- 通知只显示通用提示，不含正文或某一条目的剩余天数。点击自动或每日提醒都回到**当前卷的履行中视图**。保存笔记与通知排程错误分别显示。模式切换使用既有后台重排屏障，先停止旧任务，再保存并替换排程。
 
 ## 本地备份、日志与数据销毁
 
-- 页面右上角、卷号右侧的“设置”打开“数据与诊断”，底部不再显示设置入口。笔记读取失败时也可从右上角进入设置并恢复备份。普通真机 APK 自动记录启动、生命周期、存储读写、书写/履行/修订/卷册操作、通知权限和排程，以及 Android 广播和后台作业的结果。日志包含 UTC 时间、事件状态、设备型号、Android SDK、应用版本；存储读写记录还可能含数字卷号，但不含卷名或笔记内容。异常默认仅记录类型与堆栈，只有通知插件的固定缺失图标错误（`invalid_icon`）额外记录错误代码和资源消息；日志不含密码，是诊断轨迹而非笔记备份，也不能保证在系统强杀、ANR 或磁盘故障时记录到最后一刻。日志存于不参与 Android 系统备份的应用私有目录，不自动上传。
+- 右上角“设置”的“数据与诊断”区提供恢复和日志操作；笔记读取失败时仍可打开。普通真机 APK 自动记录启动、生命周期、存储读写、书写/履行/修订/卷册操作、通知权限和排程，以及 Android 广播和后台作业的结果。日志包含 UTC 时间、事件状态、设备型号、Android SDK、应用版本；存储读写记录还可能含数字卷号，但不含卷名或笔记内容。异常默认仅记录类型与堆栈，只有通知插件的固定缺失图标错误（`invalid_icon`）额外记录错误代码和资源消息；日志不含密码，是诊断轨迹而非笔记备份，也不能保证在系统强杀、ANR 或磁盘故障时记录到最后一刻。日志存于不参与 Android 系统备份的应用私有目录，不自动上传。
 - 设置面板最多占屏幕高度的 85%，点击面板外的背景空白即可返回笔记，也可使用“关闭”。操作进行中暂停关闭，避免导入、导出或销毁被误打断；面板内部的说明与空隙不触发关闭。
 - “导出备份”先选择“明文备份”或“密码加密备份”，再通过 Android 系统文件保存界面，将操作开始时的完整笔记快照保存为 UTF-8 JSON `Diary008-backup-<时间戳>.json`。包含当前卷、全部历史卷、卷名、断言、解释、修订链及排序偏好，不包含诊断日志或系统通知权限。加密导出需要输入并确认密码；密码中的空格与中文均原样保留。选择第三方云盘时文件会交由该提供方处理，不申请全盘存储权限，取消导出不影响笔记。
 - 加密备份使用 AES-256-GCM 认证加密、PBKDF2-HMAC-SHA256（600,000 次迭代、256 位密钥），每次导出生成新的 16 字节随机盐和 12 字节随机 nonce。JSON 外层仅保存版本、算法参数及 Base64 编码的盐、nonce、密文与认证标签，不包含明文笔记。密码不保存到应用或日志，不创建明文临时备份；忘记密码无法恢复。此功能仅保护导出的备份，不加密应用内笔记文件。明文导出仍需自行妥善保管。
@@ -99,23 +74,11 @@ APK：`build/app/outputs/flutter-apk/app-debug.apk`，当前版本 `0.4.0+4`，�
 - 笔记正在读取（含旧格式迁移）或保存时，销毁操作提示稍后重试，避免旧读取或迁移覆盖空白笔记。销毁期间暂停原生后台重排，并使旧的前台磁盘重排请求失效；取消提醒之后才释放屏障，防止旧记录的闹钟重新出现。文件提供方的导出写入使用独立队列，不阻塞笔记读写所需的日志记录。
 - 销毁为应用层删除，不承诺闪存取证级安全擦除，不能撤回已导出到应用外的文件。取消确认不会改变记录。
 
-## 公开测试与发布说明
+## 外观与字体
 
-准备向测试者提供 APK 前，请先阅读 [`PRIVACY.md`](PRIVACY.md) 与 [`docs/release-checklist.md`](docs/release-checklist.md)。应用笔记文件以明文保存在应用私有存储中；Android 系统备份未被显式关闭，可能按设备／帐号策略备份或迁移笔记与提醒文件。用户选择系统文件界面中的云盘等提供方导出时，文件会由该提供方处理。卸载或清除应用数据会删除应用私有文件，但不能删除已导出的文件或独立保留的系统备份副本。密码加密只保护导出的备份，不加密应用内笔记。测试请使用可丢弃数据，并先验证备份与恢复。
+右上角“设置”的“外观设置”区包括语言、应用字体、显示模式和纸张配色。主题选择即时生效；保存失败时恢复到上一次成功保存的选择。
 
-可在专用测试设备上试用书写、卷册、提醒权限和设置、备份导入／导出；通知可能受 Android 版本、厂商省电策略或强制停止影响，不能保证准点送达。测试建议不代表对所有设备或场景的覆盖保证。
-
-本机生成 Release 测试 APK（此命令只构建，不发布或上传）：
-
-```sh
-flutter build apk --release
-```
-
-默认输出：`build/app/outputs/flutter-apk/app-release.apk`。当前 Release 仍使用 Android 调试密钥签名，**仅供本地测试，不是可公开分发或持续更新的正式签名包**。
-
-当前版本为 `0.4.0+4`。公开更新前，发布负责人须明确签名密钥的长期保管与备份；当前 Release APK 使用开发调试密钥，**不是可持续更新的公开发布签名**。发布后的更新必须保持相同签名身份，Android `versionCode` 每次发布递增；签名身份改变可能要求卸载重装并导致应用私有数据丢失。源码许可与正式发布决策由所有者决定。本仓库说明不授权推送、商店提交或发布。
-
-应用内隐私说明以 [`assets/privacy_notice.txt`](assets/privacy_notice.txt) 为唯一文本来源。字体选择独立于语言和主题；Ma Shan Zheng 与 Cormorant Garamond 内置，Noto Serif SC／Literata、Noto Sans SC／Inter 在首次选择时从 HTTPS 字体源下载、校验并缓存，缓存后可离线使用。中文 Noto 字体采用子集文件，缺字时回退到后续字形或系统字体。远程字体源须通过 `DIARY008_FONT_BASE_URL` 构建参数配置；当前未提供 CDN 地址，未配置时两组下载字体会安全提示并保留原选择。六款字体的完整许可文本随包保留在 `assets/fonts/*-OFL.txt`。
+字体与语言、主题独立。Ma Shan Zheng 和 Cormorant Garamond 内置；Noto Serif SC／Literata 和 Noto Sans SC／Inter 首次选择时从 HTTPS 下载、校验并缓存，缓存后可离线使用。构建时通过 `--dart-define=DIARY008_FONT_BASE_URL=<HTTPS地址>` 指定字体源；未配置时会保留当前字体并提示。中文 Noto 字体是子集，缺字时使用后备字形。字体来源为 [Google Fonts](https://github.com/google/fonts)，六份完整 SIL OFL 文本位于 [`assets/fonts/`](assets/fonts/)，也可以在应用内的开源许可页阅读。
 
 ## 验证
 
@@ -125,15 +88,13 @@ flutter test
 flutter test integration_test -d emulator-5554
 ```
 
-### 本轮验证记录
+**仅在专用测试设备运行 Android 集成测试。** 测试可能替换设备上的应用或数据，不要在有真实记录的设备上运行。
 
-- `flutter analyze`：0 issues；`flutter test --reporter compact`：84 项全部通过。
-- 本次集成已运行 `flutter analyze` 和 `flutter test --reporter compact`；没有构建统一 Release APK，也没有运行上方的完整 Android `integration_test` 命令。
-- 先前 API 30 模拟器上的隐私说明／开源许可烟测属于早期测试 APK，不是本次集成产物的验证。真机／OnePlus、系统备份恢复和公开更新流程也未验证。
+`0.4.0+4` 的集成源码曾通过 `flutter analyze` 和 84 项 Flutter 测试。该集成尚未构建统一 Release APK，也未完整运行 Android 集成测试或对合并产物进行模拟器／真机烟测；系统备份恢复及公开更新流程仍未验证。
 
-### 历史验证：大量条目滚动性能
+### 滚动性能测试
 
-仅在专用 Android 测试设备运行（安装流程可能卸载原应用）。`integration_test/scroll_performance_test.dart` 默认跳过，必须使用 profile 模式显式启用；普通 debug 测试不代表滚动性能。
+性能用例默认跳过。用 profile 模式显式启用，在专用 Android 测试设备运行：
 
 ```sh
 flutter drive --profile \
@@ -142,61 +103,14 @@ flutter drive --profile \
   -d emulator-5554 --dart-define=SCROLL_PERF=true
 ```
 
-覆盖 100 / 500 / 1000 条混合长短中文记录，顶部、中部、底部各两轮，每轮 12 次定时拖动；检查实际位移及最后一条在列表尾部可见。懒构建列表的尾部定位会在计时窗口之外等待可变高度的滚动范围估计收敛，不改变拖动距离、速度或帧预算。使用已履行记录并切换“全部”，避免大量待履行记录的提醒排程干扰；不 mock 渲染或更改系统通知权限。测试在正常退出时恢复笔记文件，不保证进程被杀时恢复。
+用例覆盖 100／500／1000 条记录的顶部、中部与底部，输出 `SCROLL_PERF` JSON 和 `build/integration_response_data.json`，包括 UI build 与 raster 耗时、采样帧数及超预算比例。默认预算是 16.667 ms，可用 `--dart-define=SCROLL_FRAME_BUDGET_MS=8.333` 检查 120 Hz 预算。默认只采集；加 `--dart-define=SCROLL_PERF_ENFORCE=true` 后，任一区域超预算帧比例超过 5% 会失败。该比例不等同于系统实际丢帧率；此前模拟器实测未通过严格门槛。
 
-每组输出 `SCROLL_PERF` JSON，完整报告保存至 `build/integration_response_data.json`，包括 UI build 与 raster 的 P95/最大耗时、采样帧数及超预算帧比例；未单独采集 layout/paint 耗时。60 Hz 默认预算为 16.667 ms；UI 或 raster 任一超过预算即记作超预算帧，不等同于系统实际丢帧率。通过 `--dart-define=SCROLL_FRAME_BUDGET_MS=8.333` 可测 120 Hz 预算。加 `--dart-define=SCROLL_PERF_ENFORCE=true` 后，任一区域超预算帧比例超过 5% 会失败；默认只采集，不把测试流程成功当作性能达标。
+## 公开测试与发布说明
 
-2026-10-23 优化前后实测：Android 11 / API 30、arm64 模拟器、320×640、60 Hz、profile，使用相同数据与定时拖动。模拟器在优化测试前重新启动，宿主机负载未锁定；数值不是严格的硬件隔离实验。以下 P95 范围来自六个采样窗口，超预算比例按窗口帧数加权；不是合并后的 P95。
-
-| 条目数 | 阶段 | 采样帧数 | UI P95 范围（ms） | Raster P95 范围（ms） | 超预算帧比例 |
-| --- | --- | --- | --- | --- | --- |
-| 100 | 优化前 | 1308 | 25.7–46.5 | 37.4–59.1 | 93.3% |
-| 100 | 懒构建后 | 3568 | 2.4–3.3 | 21.8–27.2 | 31.3% |
-| 500 | 优化前 | 551 | 119.2–163.3 | 62.7–84.5 | 96.7% |
-| 500 | 懒构建后 | 3607 | 2.2–2.5 | 20.2–29.4 | 17.7% |
-| 1000 | 优化前 | 447 | 259.8–416.1 | 88.3–122.5 | 98.7% |
-| 1000 | 懒构建后 | 3555 | 2.1–4.1 | 21.7–30.3 | 22.7% |
-
-主列表已由 `SingleChildScrollView + Column` 改为 `CustomScrollView + SliverList`，仅按可见区域和缓存范围创建段落；通过条目 ID 映射保持筛选/重排后的状态归属，保留选择、复制与左右滑动。新的汇总通知直接打开当前卷顶部，不再需要遍历并定位某个屏外条目。从点击“全部”到界面稳定，优化前为 396 / 516 / 1132 ms，优化复测为 381 / 431 / 463 ms；包含菜单关闭动画，不是冷启动耗时。
-
-最终复测启用了 `SCROLL_PERF_ENFORCE=true`：三组均因超预算帧比例超过 5% 而失败（退出码 1），没有放宽阈值。UI 耗时已不再随条目数量显著增长，但剩余 raster 超预算尚未解决，不能宣称稳定 60 FPS。纸张背景独立缓存层实验未显示稳定收益，已撤回；临时对照中普通文字列表也出现约 20.5 ms 的 raster P95，不能将剩余成本只归因于纸张或选择组件，也不能据此认定为模拟器问题。未保留额外缓存层或诊断脚手架。
-
-`lazy_notebook_flow_test.dart` 覆盖 500 条记录的挂载数量边界、首尾往返和数据不变（旧实现实测挂载 500 个段落并失败，懒构建后通过）；`reminder_flow_test.dart` 按新的汇总通知契约验证旧排程移除、两种模式切换、钟点持久化、空卷每日提醒及回到当前卷。现有书写、修订、筛选排序及复制测试改为滚动至目标后验证，不依赖所有屏外条目均已挂载。
-
-滚动性能结果不能直接外推真机、其他分辨率、待履行/修订链或历史卷。初轮待履行 fixture 曾触发 Android 500 个并发闹钟上限，该轮不作为滚动基线；后续提醒改造已按日期合并自动计划，并用单次原生闹钟实现每日提醒，详见上文。
-
-历史功能验证（早期轮次）：`flutter analyze` 无问题、`flutter test` 全部 46 项通过；API 30 上完整 `flutter test integration_test -d emulator-5554` 共 13 个功能场景通过，3 个仅用于 profile 的性能用例按设计跳过。性能用例已另用上述 profile 驱动及严格门禁实测，失败情况如上，不计入功能通过数。
-
-### 历史验证：其他功能回归
-
-状态测试覆盖期限边界、完整归档与旧格式迁移、多次封存不丢卷/不重复、失效时间冻结、修订链跨筛选匹配、稳定分组排序与偏好持久化，以及月末/闰年快捷日期。Android 集成场景执行长篇书写、日历、左右滑动阈值与提示、履行确认取消不改数据、确认后不可撤销、取消修订、两类补充、排序切换与磁盘重载、分组过滤、逾期封存、历史卷只读及返回新卷继续书写；测试会保存并恢复原笔记文件。仅在专用测试模拟器运行集成测试，勿在存有真实记录的手机上运行测试安装流程。
-备份验证：`test/notebook_backup_test.dart` 覆盖完整历史/修订链保留、旧格式迁移、不支持的版本、缺失历史字段、重复卷/记录、断链与缺失期限；`integration_test/backup_flow_test.dart` 覆盖无效文件及取消不覆盖、确认完整替换、恢复后翻阅历史与重启读取。Android 11 专用模拟器已使用普通 APK 和系统文件选择器实际导出 JSON，并重新选择该文件确认导入，检查了恢复成功提示和落盘内容。
-密码备份验证：`test/backup_encryption_test.dart` 覆盖中文/空格密码、随机化导出、错误密码、密文/nonce/盐/认证标签篡改和不支持的参数；`test/backup_password_dialog_test.dart` 覆盖错误密码后改正并成功解密。Android API 36 上的备份集成场景已通过，覆盖加密导出、密码确认不一致、取消解密、错误密码重试、取消覆盖、确认恢复及旧明文恢复。普通 debug APK 另通过真实系统文件界面保存加密 JSON、重新选取并解密、确认导入，检查恢复成功提示和落盘内容；此手动场景使用空白笔记，完整历史与修订链由集成场景验证。
-复制粘贴验证：`integration_test/clipboard_flow_test.dart` 在 Android 模拟器使用真实系统剪贴板，执行条目长按选择/复制、新建输入框按钮粘贴、修订输入框长按粘贴、修订页引用原文复制、历史卷复制及不改写落盘内容。原有 `integration_test/notebook_flow_test.dart` 滑动履行、修订和书写流程回归通过。输入框另经临时交互脚本验证选区替换、多行文字与空剪贴板不改动草稿；精简菜单后，普通 APK 已实际验证菜单只保留复制操作、复制后可在空白新草稿中通过按钮粘贴。
-高刷新率启动验证：当前 APK 经 `--offline :app:assembleDebug` 成功组装，SHA-256 `17afc2ad78088ea79235e39b02c3cf40d36517f16a650a95868b0a3ef19cbd0a` 与模拟器已安装 APK 一致；API 30 单模式 60 Hz 模拟器冷启动后 3.738 秒显示笔记首帧，捕获中未匹配到 `setDesiredDisplayConfigSpecs`、`EINVAL` 或 `-22`，`flutter analyze` 与 35 项测试通过。该单模式模拟器不能证明多模式 Android 11 真机黑屏的根因或解决情况。
-
-提醒纯计算测试可单独运行 `flutter test test/reminder_plan_test.dart`，覆盖当地九点、夏令时、跨年与换区后日历节点/ID 不变、短期截止日提醒、长期间隔、过期节点与重复日期、当地全卷期限截断和修订重排；`test/notebook_storage_test.dart` 覆盖 UTC/日历日期持久化、旧格式迁移和后台只读。专用 Android 模拟器已验证普通启动迁移、上海/洛杉矶前台换区、确认进程死亡后的奥克兰无界面重排、洛杉矶冷启动恢复，以及故意损坏 JSON 后的系统退避与恢复成功后作业移除；重试后 AlarmManager 有七个东京当地九点闹钟。普通单元测试不证明系统投递。复验投递需手动授权，在专用模拟器准备下一次当地09:00节点、将应用退到后台，观察通知并点击；复验重启恢复应在解锁和启动广播投递后检查原生 AlarmManager，而不是先打开应用重排。
-
-此前提醒功能回归通过 `flutter analyze`、24 个单元用例和 5 个 Android 交互用例；模拟器实际重启在系统延迟投递启动广播后、未打开应用页面的情况下恢复了七个当地九点原生闹钟，作业随后移除。
-
-最后普通 APK 烟测发现该包确有一次 `No response to onStartJob` ANR。修复将 Flutter 初始化及前台通道调用整体移出同步作业回调，并为每次广播作业添加代际标识，防止旧停止回调清空新状态。删除临时诊断日志后重新通过 analyze、24 个单元用例及普通 APK 构建；从 `2026-10-21T10:24:07Z` 开始的新窗口实测连续四次时区广播、确认进程死亡后的无界面重排、恢复当地设置页，作业均结束，UTC epoch 日志中该窗口新增应用 ANR 为零。历史 ANR 记录未清除，不将旧记录或单次正常界面当作修复证明。
-
-本次卷册功能通过 `flutter analyze`、30 个单元用例和 6 个 Android 交互用例。新增场景覆盖取消新建、改名及清空名称、主动封存完整历史与只读状态、当前待履行/历史全部的默认视图及重启恢复。普通 `0.4.0+4` APK 在模拟器上确认新建后，旧卷的七个排程请求及七个 AlarmManager 闹钟均变为零；改名真实保存，手动封存原因与旧卷全部记录已在实际界面检查。两个独立只读审查分别覆盖数据迁移和界面状态，未发现问题。
-
-本地日志与销毁功能通过 `flutter analyze`、35 个单元用例和 9 个 Android 交互用例（API 30）。新增用例覆盖取消/确认销毁、全部卷册删除与重启恢复、系统待发/已显示通知清理，以及延迟重读和旧磁盘重排跨越销毁边界。普通 APK 已实测系统文件保存、取消导出、销毁保留日志、独立清空日志不改笔记及不删除外部文件；导出内容未包含测试正文/卷名。额外烟测确认销毁屏障内时区广播被延后，释放后真实重排成功，Activity 销毁会释放所属屏障并由无界面引擎完成重排。临时烟测入口与导出文件已删除，最终产物恢复为 `lib/main.dart` 构建的普通调试 APK；尚未连接物理真机验证。
+在交付前阅读 [`PRIVACY.md`](PRIVACY.md) 和 [发布检查清单](docs/release-checklist.md)。本地 Release 测试包可用 `flutter build apk --release` 构建，输出 `build/app/outputs/flutter-apk/app-release.apk`。当前使用调试密钥，**不得公开分发**；正式签名、目标设备上的安装和同签名更新验证均是发布前置条件。
 
 ## 原型边界
 
-- 没有后台常驻服务：系统负责触发闹钟，短时后台作业负责重排和显示每日提醒；整卷封存只在启动、恢复前台或用户修改前检查，不再每秒扫描。期限与提醒均按设备当地日历日期计算，尚无防改时钟机制。
-- 手势仅在当前卷待处理段落启用；左滑松手后需二次确认履行，已履行不可撤销。屏幕阅读器可通过语义动作触发履行或修订。历史卷永远不能事后补签或改写。
-- 不包含自然语言日期解析、云同步、账号、自动证明现实履行情况。
-- 模拟器若出现 “System UI isn't responding”，先停止 AVD 并冷启动：`emulator -avd Diary008_API_36 -no-snapshot-load`；不要把系统弹窗或桌面当作应用验证。`-wipe-data` 会删除该 AVD 全部数据，仅在你确认可清空时使用。
-
-## 字体授权
-
-字体随包发布，离线可用，来源为 Google Fonts 仓库：
-
-- [Ma Shan Zheng](https://github.com/google/fonts/tree/main/ofl/mashanzheng)：中文毛笔书写风格，许可见 `assets/fonts/MaShanZheng-OFL.txt`。
-- [Cormorant Garamond](https://github.com/google/fonts/tree/main/ofl/cormorantgaramond)：英文古典衬线，许可见 `assets/fonts/CormorantGaramond-OFL.txt`。
-- [Noto Serif SC](https://github.com/google/fonts/tree/main/ofl/notoserifsc)：中文宋体子集；[Literata](https://github.com/google/fonts/tree/main/ofl/literata)：英文书卷衬线；许可分别见 `assets/fonts/NotoSerifSC-OFL.txt` 和 `assets/fonts/Literata-OFL.txt`。
-- [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc)：中文黑体子集；[Inter](https://github.com/google/fonts/tree/main/ofl/inter)：英文无衬线；许可分别见 `assets/fonts/NotoSansSC-OFL.txt` 和 `assets/fonts/Inter-OFL.txt`。
+- 没有常驻后台服务；系统触发提醒，短时作业重排通知。期限与提醒按设备当地日历日期计算，没有防改时钟机制。
+- 不包含自然语言日期解析、云同步、账号或自动证明现实履行情况。
+- 若模拟器的 System UI 无响应，停止 AVD 后用 `emulator -avd <AVD名称> -no-snapshot-load` 冷启动；`-wipe-data` 会清除该 AVD 的全部数据。

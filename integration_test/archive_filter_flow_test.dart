@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:diary008/main.dart';
 import 'package:diary008/notebook.dart';
@@ -8,7 +7,8 @@ import 'package:diary008/journal_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -23,17 +23,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text(text).hitTestable(), findsOneWidget);
-  }
-
-  Future<void> chooseFilter(WidgetTester tester, String label) async {
-    tester.state<ScrollableState>(find.byType(Scrollable)).position.jumpTo(0);
-    await tester.pumpAndSettle();
-    final menu = find.byType(PopupMenuButton<NotebookFilter>);
-    await tester.ensureVisible(menu);
-    await tester.tap(menu);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(PopupMenuItem<NotebookFilter>, label));
-    await tester.pumpAndSettle();
   }
 
   Future<void> chooseVolume(
@@ -51,9 +40,8 @@ void main() {
   testWidgets(
     'filters overlap by group without splitting original and replacement',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       try {
         final now = DateTime.now();
         var book = Notebook.empty()
@@ -94,20 +82,15 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
       } finally {
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );
   testWidgets(
     'expired volume is preserved, selectable, filterable, and read-only',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       try {
         final now = DateTime.now();
         final yesterday = now.subtract(const Duration(days: 1));
@@ -190,20 +173,15 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
       } finally {
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );
   testWidgets(
     'manual volumes preserve names and readonly history with pending-first current views',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       Future<Notebook> savedBook() async => Notebook.fromJson(
         jsonDecode(await file.readAsString()) as Map<String, dynamic>,
       );
@@ -309,11 +287,7 @@ void main() {
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );

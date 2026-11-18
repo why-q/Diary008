@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui';
 
@@ -9,7 +8,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 // Opt in so the normal debug integration suite does not publish misleading FPS.
 const _enabled = bool.fromEnvironment('SCROLL_PERF');
@@ -31,9 +31,8 @@ void main() {
         isTrue,
         reason: 'Run this benchmark with --profile.',
       );
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsBytes() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       try {
         final now = DateTime.now();
         final book = Notebook(
@@ -198,11 +197,7 @@ void main() {
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
-        if (original != null) {
-          await file.writeAsBytes(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     }, skip: !_enabled);
   }

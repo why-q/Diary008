@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:diary008/main.dart';
 import 'package:diary008/entry_editor.dart';
@@ -10,16 +9,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets('long-press copy and paste work without modifying sealed text', (
     tester,
   ) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/notebook.json');
-    final original = await file.exists() ? await file.readAsString() : null;
+    final notebook = await snapshotNotebook();
+    final file = notebook.file;
     final now = DateTime.now();
     final book = Notebook.empty()
         .add('ArchivedClipboard', now.add(const Duration(days: 20)), now)
@@ -97,11 +96,7 @@ void main() {
       expect(jsonDecode(await file.readAsString()), book.toJson());
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
-      if (original == null) {
-        if (await file.exists()) await file.delete();
-      } else {
-        await file.writeAsString(original);
-      }
+      await notebook.restore();
     }
   });
 }

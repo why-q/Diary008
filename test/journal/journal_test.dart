@@ -305,6 +305,15 @@ void main() {
       ]);
     });
 
+    test('an orphan revision is admitted and left for replay to resolve', () {
+      final log = journal();
+
+      final result = log.admit(reviseOp(entryId: 'entry-unknown'));
+
+      expect(result.admission, JournalAdmission.appended);
+      expect(log.operationsForEntry('entry-unknown').single.text, isNotEmpty);
+    });
+
     test('rejects a foreign notebook without appending', () {
       final log = journal();
 

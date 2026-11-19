@@ -58,6 +58,10 @@ class JournalAdmissionResult {
 /// [notebookId] and [epochId] are supplied explicitly. Nothing in this class
 /// infers either from entry text, entry identifiers, or volume numbers, and no
 /// migration or production storage is attached.
+///
+/// Admission judges identity and consistency only. A revision whose entry has
+/// no accepted creation is still admitted, because cross-actor ordering is not
+/// decided here; replay must surface it as unresolved instead of dropping it.
 class Journal {
   Journal({
     required this.notebookId,

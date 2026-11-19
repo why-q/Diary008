@@ -2,19 +2,32 @@
 ///
 /// Scope and ownership
 /// -------------------
-/// One [AtomicNotebookStore] instance owns one envelope file. Commits on the
-/// same instance are serialized, so two overlapping calls cannot interleave a
-/// read-check-write. This is an in-process, single-writer contract only:
+/// One envelope file has one writer at a time inside this isolate. Commits are
+/// serialized per normalized target path, so two [AtomicNotebookStore]
+/// instances in the same isolate that name the same file cannot interleave a
+/// read-check-write, and only one of them can report a durable change.
 ///
-/// * Nothing here coordinates a second process, a second isolate, or a second
-///   instance pointed at the same path. Two writers can still lose updates.
+/// Limits that remain, and are not claimed to be solved here:
+///
+/// * Nothing here coordinates a second isolate or a second process. Two
+///   isolates or processes pointed at the same file can still both read the
+///   same revision and then overwrite each other.
+/// * The path lock is keyed by a normalized absolute path. Symlinks, hard
+///   links, case-insensitive file systems, bind mounts, and different
+///   `Directory` spellings that resolve to the same inode are still distinct
+///   keys, so they are not coordinated.
 /// * Durability is limited to `writeAsBytes(flush: true)` followed by
 ///   `rename` in the same directory. That ordering survives a process crash,
 ///   but it is not a tested power-loss guarantee, and no `fsync` of the
-///   directory is performed.
+///   directory is performed. A sudden power loss can leave the rename
+///   undurable even after it was reported as committed.
+///
+/// Every commit writes a uniquely named temporary file in the target
+/// directory, so a stale temp file from a crashed writer is never reused and
+/// never overwrites another writer's bytes.
 ///
 /// This adapter is experimental and is not wired into the app. `notebook.json`
-/// keeps its own format and its own writer.
+/// keeps its own format and its own writer, and is refused as a target.
 library;
 
 import 'dart:convert';
@@ -24,6 +37,9 @@ import '../notebook.dart';
 import 'journal.dart';
 import 'journal_operation.dart';
 import 'notebook_envelope.dart';
+
+/// File name reserved for the app's notebook document.
+const String _reservedNotebookFileName = 'notebook.json';
 
 /// Outcome of [AtomicNotebookStore.commit].
 enum EnvelopeCommitStatus {
@@ -99,8 +115,49 @@ class EnvelopeScopeMismatch implements Exception {
       'EnvelopeScopeMismatch: expected $expected, stored $actual';
 }
 
+/// Normalized path -> tail of the commit chain for that target.
+final Map<String, Future<void>> _pathTails = {};
+
+/// Serializes commits that name the same normalized envelope path.
+///
+/// The key is the absolute path of [file] with `.` and `..` segments and
+/// duplicate separators resolved lexically. Spellings that differ only in those
+/// ways share one chain. Symlinks, hard links, and case-insensitive aliases do
+/// not.
+String _lockKey(File file) => _normalizePath(file.absolute.path);
+
+String _normalizePath(String path) {
+  final separator = Platform.pathSeparator;
+  final isAbsolute = path.startsWith(separator);
+  final segments = <String>[];
+  for (final segment in path.split(separator)) {
+    if (segment.isEmpty || segment == '.') continue;
+    if (segment == '..') {
+      if (segments.isNotEmpty && segments.last != '..') {
+        segments.removeLast();
+      } else if (!isAbsolute) {
+        segments.add('..');
+      }
+      continue;
+    }
+    segments.add(segment);
+  }
+  return '${isAbsolute ? separator : ''}${segments.join(separator)}';
+}
+
 class AtomicNotebookStore {
-  AtomicNotebookStore(this.file, {required this.scope, this.beforeReplace});
+  AtomicNotebookStore(this.file, {required this.scope, this.beforeReplace}) {
+    if (file.uri.pathSegments.isEmpty ||
+        file.uri.pathSegments.last == _reservedNotebookFileName) {
+      // The app's notebook document is never an envelope. Refuse the target at
+      // construction so no write, temp file, or rename can touch it.
+      throw ArgumentError.value(
+        file.path,
+        'file',
+        'refuses the app notebook document as an envelope target',
+      );
+    }
+  }
 
   /// Envelope file. Its directory must already exist.
   final File file;
@@ -113,7 +170,7 @@ class AtomicNotebookStore {
   /// before it replaces [file]. Production callers leave it null.
   final Future<void> Function()? beforeReplace;
 
-  Future<void> _tail = Future.value();
+  int _tempCounter = 0;
 
   /// Reads the stored envelope, or `null` when the file does not exist.
   ///
@@ -121,7 +178,15 @@ class AtomicNotebookStore {
   /// being repaired, migrated, or overwritten.
   Future<NotebookEnvelope?> read() async {
     if (!await file.exists()) return null;
-    final text = await file.readAsString();
+    final bytes = await file.readAsBytes();
+    final String text;
+    try {
+      // Decode explicitly so malformed bytes fail closed with a message that
+      // carries neither the bytes nor the file path.
+      text = utf8.decode(bytes);
+    } on FormatException {
+      throw const EnvelopeFormatException('envelope is not valid UTF-8');
+    }
     final envelope = NotebookEnvelope.decode(text);
     if (!scope.covers(envelope.journal)) {
       throw EnvelopeScopeMismatch(scope, envelope.scope);
@@ -143,10 +208,16 @@ class AtomicNotebookStore {
     required Notebook notebook,
     required JournalOperation operation,
   }) {
-    final result = _tail.then(
+    final key = _lockKey(file);
+    final tail = _pathTails[key] ?? Future<void>.value();
+    final result = tail.then(
       (_) => _commit(base: base, notebook: notebook, operation: operation),
     );
-    _tail = result.then((_) {}, onError: (_) {});
+    final chain = result.then((_) {}, onError: (_) {});
+    _pathTails[key] = chain;
+    chain.whenComplete(() {
+      if (identical(_pathTails[key], chain)) _pathTails.remove(key);
+    });
     return result;
   }
 
@@ -155,7 +226,27 @@ class AtomicNotebookStore {
     required Notebook notebook,
     required JournalOperation operation,
   }) async {
-    final stored = await read();
+    final NotebookEnvelope? stored;
+    try {
+      stored = await read();
+    } on EnvelopeFormatException catch (error) {
+      // Stored bytes are malformed, unsupported, or not UTF-8. Fail closed:
+      // nothing is written and the raw document is left for recovery.
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.failed,
+        reason: 'stored envelope cannot be read: ${error.message}',
+      );
+    } on EnvelopeScopeMismatch {
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.scopeMismatch,
+        reason: 'stored envelope belongs to another scope',
+      );
+    } on FileSystemException {
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.failed,
+        reason: 'stored envelope cannot be read',
+      );
+    }
     if (stored == null) {
       return EnvelopeCommitResult(
         EnvelopeCommitStatus.stale,
@@ -241,7 +332,12 @@ class AtomicNotebookStore {
     JournalAdmissionResult admission,
   ) async {
     final bytes = utf8.encode(next.encode());
-    final temp = File('${file.path}.tmp');
+    // A unique name per attempt: a crashed writer's stale temp file is never
+    // reopened, and two instances can never share one temporary file.
+    final temp = File(
+      '${file.path}.$pid-${_tempCounter++}-'
+      '${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
     try {
       // Checked validation: the exact bytes about to be renamed must decode to
       // the intended envelope before the stored file is touched.

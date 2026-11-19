@@ -76,14 +76,27 @@ An experimental, explicitly instantiated file adapter under `lib/journal/`. It i
 | Task | Work | Acceptance and focused verification |
 | --- | --- | --- |
 | M3.2.1 | Add a versioned envelope document that carries one notebook snapshot and one journal, plus an explicit `JournalScope` (`notebookId`, `epochId`) and a monotonic `revision`. | Decode rejects unknown keys, an unsupported envelope or notebook schema version, a missing or wrong format discriminator, a non-canonical snapshot, a duplicate operation, and a journal outside the requested scope. It never migrates and never repairs. Errors name fields only, never diary text. |
-| M3.2.2 | Add `AtomicNotebookStore`: one instance owns one file, and a commit writes the whole envelope to a same-directory temporary file, validates those exact bytes, then renames over the target. | A commit is refused as `stale` unless the caller's base revision and base content both match the stored envelope; it is refused as `conflict`, `duplicate`, `noChange`, `inconsistent`, or `scopeMismatch` when the journal already holds the operation or the snapshot contradicts it. Only `committed` claims a durable change, and it increments the revision by exactly one. |
-| M3.2.3 | Record the M3.2 checkpoint. | One focused test file covers reload, Unicode, scope, malformed and unsupported envelopes, disruption immediately before replacement (the prior notebook and journal remain together and the interrupted commit can be retried), replay/idempotence, stale-write protection, serialized overlapping commits, and that `notebook.json` is untouched. |
+| M3.2.2 | Add `AtomicNotebookStore`: one instance owns one file, and a commit writes the whole envelope to a unique same-directory temporary file, validates those exact bytes, then renames over the target. Commits are serialized on a normalized target path, and `notebook.json` is refused as a target. | A commit is refused as `stale` unless the caller's base revision and base content both match the stored envelope; it is refused as `conflict`, `duplicate`, `noChange`, `inconsistent`, or `scopeMismatch` when the journal already holds the operation or the snapshot contradicts it. Only `committed` claims a durable change, and it increments the revision by exactly one. Two instances on one path never both report `committed`. |
+| M3.2.3 | Record the M3.2 checkpoint. | One focused test file covers reload, Unicode, scope, malformed and unsupported envelopes, disruption immediately before replacement (the prior notebook and journal remain together and the interrupted commit can be retried), replay/idempotence, stale-write protection, serialized overlapping commits across two instances, malformed UTF-8 and malformed keys that never echo stored content, refusal of a `notebook.json` target, and that `notebook.json` is untouched. |
 
 Ownership contract and limits, stated in the code and tested:
 
-- Single-writer, in-process only. Commits on one instance are serialized; a second instance or process pointed at the same path can still lose updates. No lock file is created.
-- Durability is `writeAsBytes(flush: true)` plus a same-directory `rename`. That ordering survives a process crash; it is not a tested power-loss guarantee and the directory is not fsynced.
-- The adapter asserts, but cannot verify, that the offered snapshot reflects the offered operation. `Notebook` carries no notebook, epoch, or entry identity, so a commit of an operation for an absent entry succeeds today. That test pins the gap.
+- One writer at a time per target, inside one isolate. Commits are serialized on a lexically normalized absolute path, so two `AtomicNotebookStore` instances in the same isolate that name the same file cannot interleave a read-check-write, and only one of them can report `committed`. The other observes the new revision and returns `stale`.
+- Not coordinated, and not claimed: a second isolate, a second process, and path aliases that a lexical normalization cannot see (symlinks, hard links, case-insensitive file systems, bind mounts). Those writers can still lose updates. No lock file is created.
+- Durability is `writeAsBytes(flush: true)` plus a same-directory `rename`. That ordering survives a process crash. It is not a tested power-loss guarantee, the directory is not fsynced, and a sudden power loss can leave a rename undurable after `committed` was reported.
+- Each attempt writes a unique temporary file beside the target, so a stale temp file from a crashed writer is never reused and two writers never share one temporary file.
+- `notebook.json` is refused as a target at construction, before any write, temp file, or rename. The envelope keeps its own file name and `notebook.json` keeps its own format and writer.
+
+What a commit actually checks, and what it does not:
+
+- Checked: the caller's base revision equals the stored revision; the caller's base content equals the stored content byte for byte after canonical encoding; the operation is admitted to the stored journal; the offered snapshot differs from the stored snapshot; the exact bytes about to be renamed decode back to the intended envelope; the scope matches.
+- Not checked: that the offered snapshot actually reflects the operation. `Notebook` carries no notebook, epoch, or entry identity, so a commit of an operation for an absent entry succeeds today, and that test pins the gap. This is not a snapshot-versus-operation consistency check; it is only a "snapshot changed" check.
+- Production hookup therefore requires projection-backed validation: replay must produce the snapshot from the journal and compare it, so the correspondence is derived rather than asserted by the caller.
+
+How storage and format errors surface:
+
+- `read()` throws. A malformed, non-UTF-8, unsupported, or non-canonical stored document throws `EnvelopeFormatException`; a valid document from another scope throws `EnvelopeScopeMismatch`. Both name fields only and never echo stored bytes, paths, or diary text.
+- `commit()` returns instead of throwing. A stored document that cannot be read yields `failed` with a short static reason; a stored document from another scope yields `scopeMismatch`. A failure while writing, validating, or renaming yields `failed`. Only `committed` claims a durable change, and the stored bytes are left untouched in every other case.
 
 Explicit non-goals for M3.2, all still unshipped:
 
@@ -99,9 +112,18 @@ Explicit non-goals for M3.2, all still unshipped:
 
 Remaining prerequisites before any production hookup:
 
-- Replay must define and check the snapshot/operation correspondence the store cannot verify.
-- A single-writer contract must be extended to cover a second instance, a second isolate, or a second process before the envelope file is shared with the app.
+- Replay must define and check the snapshot/operation correspondence the store cannot verify. Hookup needs projection-backed validation: replay derives the snapshot from the journal and the store compares it, instead of trusting the caller.
+- A single-writer contract must be extended to cover a second isolate and a second process, and to detect path aliases a lexical normalization cannot see, before the envelope file is shared with the app.
 - Backup, restore, and entry destruction need their own barriers so a pending journal is neither discarded nor used to resurrect deleted text.
+
+#### M3.2 corrective follow-up
+
+Applied on branch `m3-atomic-hardening`, based on candidate `9c0e968734dce22c19d15d12f7a0307bc13303e1`.
+
+- Regression tests first, then minimal fixes: malformed JSON keys no longer repeat the offending key in a `JournalFormatException` or `EnvelopeFormatException` message or field; malformed UTF-8 fails closed with no payload; a `notebook.json` target is refused at construction before any write; commits from two instances on one path are serialized and never both report `committed`.
+- Fixes: unknown-key errors name only the known parent field; an unsupported operation kind no longer echoes the stored value; `read()` decodes UTF-8 explicitly and throws a content-free `EnvelopeFormatException`; `commit()` converts an unreadable stored document into `failed` instead of throwing; commits share a per-path chain keyed by a lexically normalized absolute path; each attempt uses a unique temporary file name so writers never share one temp file.
+- Unchanged: the single experimental envelope, same-directory flushed atomic replace, `notebook.json` path, schema, and backup format, production APIs, and dependencies. No diary data is used.
+- This follow-up corrects claims, not scope. The store still checks only that the snapshot changed, not that it reflects the operation; production hookup still needs replay-backed projection.
 
 None of the remaining M3 or M4 work has shipped.
 

@@ -97,8 +97,9 @@ abstract class JournalOperation {
     final kind = switch (kindName) {
       'create' => JournalOperationKind.create,
       'revise' => JournalOperationKind.revise,
-      _ => throw JournalFormatException(
-        'unsupported operation kind "$kindName"',
+      // The stored value is content; it is never echoed back.
+      _ => throw const JournalFormatException(
+        'unsupported operation kind',
         field: 'operation.kind',
       ),
     };

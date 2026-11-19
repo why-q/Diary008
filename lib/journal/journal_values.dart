@@ -229,10 +229,9 @@ void requireExactKeys(
 }) {
   for (final key in json.keys) {
     if (!allowed.contains(key)) {
-      throw JournalFormatException(
-        'unknown key',
-        field: field.isEmpty ? key : '$field.$key',
-      );
+      // The offending key is stored content, so it is never repeated in the
+      // message or the field. Only the known parent field is named.
+      throw JournalFormatException('unknown key', field: field);
     }
   }
   for (final key in allowed) {

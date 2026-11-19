@@ -561,6 +561,199 @@ void main() {
     });
   });
 
+  group('malformed data never echoes stored content', () {
+    const secret = '这是不该出现在错误里的日记正文';
+
+    void expectNoSecret(Object error) {
+      final text = error.toString();
+      expect(text, isNot(contains(secret)));
+      if (error is JournalFormatException) {
+        expect(error.message, isNot(contains(secret)));
+        expect(error.field ?? '', isNot(contains(secret)));
+      }
+      if (error is EnvelopeFormatException) {
+        expect(error.message, isNot(contains(secret)));
+        expect(error.field ?? '', isNot(contains(secret)));
+      }
+    }
+
+    test('an unknown envelope key is rejected without echoing the key', () {
+      final json = emptyEnvelope().toJson()..[secret] = true;
+      try {
+        NotebookEnvelope.decode(jsonEncode(json));
+        fail('expected an EnvelopeFormatException');
+      } on EnvelopeFormatException catch (error) {
+        expectNoSecret(error);
+      }
+    });
+
+    test('an unknown journal key is rejected without echoing the key', () {
+      final json = Journal(notebookId: _notebookId, epochId: _epochId).toJson()
+        ..[secret] = true;
+      try {
+        Journal.fromJson(json);
+        fail('expected a JournalFormatException');
+      } on JournalFormatException catch (error) {
+        expectNoSecret(error);
+      }
+    });
+
+    test('an unknown operation key is rejected without echoing the key', () {
+      final json = createOp().toJson()..[secret] = true;
+      try {
+        JournalOperation.fromJson(json);
+        fail('expected a JournalFormatException');
+      } on JournalFormatException catch (error) {
+        expectNoSecret(error);
+      }
+    });
+
+    test('an unsupported operation kind is rejected without echoing it', () {
+      final json = createOp().toJson()..['kind'] = secret;
+      try {
+        JournalOperation.fromJson(json);
+        fail('expected a JournalFormatException');
+      } on JournalFormatException catch (error) {
+        expectNoSecret(error);
+      }
+    });
+
+    test('malformed UTF-8 fails closed and leaves the bytes alone', () async {
+      final bytes = <int>[
+        ...utf8.encode('{"schemaVersion":1,"format":"$envelopeFormatName"'),
+        0xFF,
+        0xFE,
+        ...utf8.encode(secret),
+      ];
+      await envelopeFile.writeAsBytes(bytes);
+      final before = await envelopeFile.readAsBytes();
+
+      try {
+        await store.read();
+        fail('expected an EnvelopeFormatException');
+      } on EnvelopeFormatException catch (error) {
+        expectNoSecret(error);
+      }
+      expect(await envelopeFile.readAsBytes(), before);
+
+      final result = await store.commit(
+        base: emptyEnvelope(),
+        notebook: notebookWithEntry(),
+        operation: createOp(),
+      );
+      expect(result.status, EnvelopeCommitStatus.failed);
+      expect(result.isCommitted, isFalse);
+      expect(await envelopeFile.readAsBytes(), before);
+    });
+
+    test(
+      'a malformed stored envelope makes commit fail instead of throw',
+      () async {
+        await envelopeFile.writeAsString('{not json');
+        final before = await envelopeFile.readAsString();
+
+        final result = await store.commit(
+          base: emptyEnvelope(),
+          notebook: notebookWithEntry(),
+          operation: createOp(),
+        );
+        expect(result.status, EnvelopeCommitStatus.failed);
+        expect(result.isCommitted, isFalse);
+        expect(await envelopeFile.readAsString(), before);
+      },
+    );
+  });
+
+  group('production storage target', () {
+    test(
+      'a notebook.json target is refused before anything is written',
+      () async {
+        const appBytes = '{"schemaVersion":4,"volume":1,"entries":[]}';
+        await appNotebookFile.writeAsString(appBytes);
+
+        expect(
+          () => AtomicNotebookStore(appNotebookFile, scope: scope()),
+          throwsArgumentError,
+        );
+        expect(await appNotebookFile.readAsString(), appBytes);
+        expect(await dir.list().map((e) => e.path.split('/').last).toList(), [
+          'notebook.json',
+        ]);
+      },
+    );
+  });
+
+  group('two instances on one path', () {
+    test('simultaneous commits never both report a durable change', () async {
+      final base = emptyEnvelope();
+      await writeEnvelope(base);
+      final first = AtomicNotebookStore(envelopeFile, scope: scope());
+      final second = AtomicNotebookStore(envelopeFile, scope: scope());
+
+      final results = await Future.wait([
+        first.commit(
+          base: base,
+          notebook: notebookWithEntry(text: '甲'),
+          operation: createOp(operationId: 'op-a', text: '甲'),
+        ),
+        second.commit(
+          base: base,
+          notebook: notebookWithEntry(text: '乙'),
+          operation: createOp(operationId: 'op-b', sequence: 2, text: '乙'),
+        ),
+      ]);
+
+      expect(results.where((r) => r.isCommitted).length, 1);
+      expect(
+        results.where((r) => r.status == EnvelopeCommitStatus.stale).length,
+        1,
+      );
+      final reloaded = await AtomicNotebookStore(
+        envelopeFile,
+        scope: scope(),
+      ).read();
+      expect(reloaded!.revision, 2);
+      expect(reloaded.journal.length, 1);
+      expect(
+        await dir
+            .list()
+            .where((entity) => entity.path.endsWith('.tmp'))
+            .toList(),
+        isEmpty,
+      );
+    });
+
+    test('equivalent path spellings share one lock', () async {
+      final base = emptyEnvelope();
+      await writeEnvelope(base);
+      final plain = AtomicNotebookStore(envelopeFile, scope: scope());
+      final alias = AtomicNotebookStore(
+        File('${dir.path}/./${envelopeFile.uri.pathSegments.last}'),
+        scope: scope(),
+      );
+
+      final results = await Future.wait([
+        plain.commit(
+          base: base,
+          notebook: notebookWithEntry(text: '甲'),
+          operation: createOp(operationId: 'op-a', text: '甲'),
+        ),
+        alias.commit(
+          base: base,
+          notebook: notebookWithEntry(text: '乙'),
+          operation: createOp(operationId: 'op-b', sequence: 2, text: '乙'),
+        ),
+      ]);
+
+      expect(results.where((r) => r.isCommitted).length, 1);
+      expect(
+        results.where((r) => r.status == EnvelopeCommitStatus.stale).length,
+        1,
+      );
+      expect((await plain.read())!.revision, 2);
+    });
+  });
+
   group('existing app file', () {
     test('commits leave notebook.json untouched', () async {
       const appBytes = '{"schemaVersion":4,"volume":3,"entries":[]}';

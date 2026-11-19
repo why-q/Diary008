@@ -6,9 +6,9 @@ See [AGENTS.md](AGENTS.md#development-workflow) for the standing development wor
 
 Diary008 is currently an Android-only Flutter prototype. The goal is to write on a phone or laptop, keep writing offline, and sync through storage the user chooses, including self-hosted options. Diary008 will not embed an AI provider. Users can opt in to bringing their own agents to work with diary entries and predictions.
 
-The `fast-worker` and `smart-worker` profiles are defined. Product implementation has not started. No laptop platform, sync provider, or MCP release scope has been selected.
+The `fast-worker` and `smart-worker` profiles are defined. M1 is complete. The next milestone is application commands and queries. No laptop platform, sync provider, or MCP release scope has been selected.
 
-## M1 — Wrap the existing JSON repository (next)
+## M1 — Wrap the existing JSON repository (complete)
 
 | Task | Work | Acceptance and focused verification |
 | --- | --- | --- |

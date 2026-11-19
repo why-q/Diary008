@@ -28,7 +28,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/MaShanZheng-OFL.txt
-    - assets/fonts/CormorantGaramond-OFL.txt
+    - assets/fonts/Kalam-OFL.txt
     - assets/fonts/NotoSerifSC-OFL.txt
     - assets/fonts/NotoSansSC-OFL.txt
     - assets/fonts/Literata-OFL.txt
@@ -39,6 +39,6 @@ flutter:
     - family: MaShanZheng
       fonts:
         - asset: assets/fonts/MaShanZheng.ttf
-    - family: CormorantGaramond
+    - family: Kalam
       fonts:
-        - asset: assets/fonts/CormorantGaramond.ttf
+        - asset: assets/fonts/Kalam-Regular.ttf

@@ -39,7 +39,7 @@ extension AppFontPreferenceDetails on AppFontPreference {
 
   String get description => switch (this) {
     AppFontPreference.followSystem => '使用设备的默认字体',
-    AppFontPreference.handwritten => 'Ma Shan Zheng · Cormorant Garamond（内置）',
+    AppFontPreference.handwritten => 'Ma Shan Zheng · Kalam（内置）',
     AppFontPreference.book => 'Noto Serif SC · Literata（首次选择时下载）',
     AppFontPreference.clean => 'Noto Sans SC · Inter（首次选择时下载）',
   };
@@ -47,7 +47,7 @@ extension AppFontPreferenceDetails on AppFontPreference {
   FontFamilyPair? get families => switch (this) {
     AppFontPreference.followSystem => null,
     AppFontPreference.handwritten => const FontFamilyPair(
-      primary: 'CormorantGaramond',
+      primary: 'Kalam',
       fallback: ['MaShanZheng', 'serif'],
     ),
     AppFontPreference.book => const FontFamilyPair(

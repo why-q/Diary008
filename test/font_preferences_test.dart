@@ -85,7 +85,7 @@ void main() {
 
     test('maps every custom option to its Latin and Chinese families', () {
       final expected = {
-        AppFontPreference.handwritten: ('CormorantGaramond', 'MaShanZheng'),
+        AppFontPreference.handwritten: ('Kalam', 'MaShanZheng'),
         AppFontPreference.book: ('Literata', 'NotoSerifSC'),
         AppFontPreference.clean: ('Inter', 'NotoSansSC'),
       };
@@ -114,7 +114,7 @@ void main() {
       ) as List<dynamic>).cast<Map<String, dynamic>>();
       const bundled = {
         'MaShanZheng': 'assets/fonts/MaShanZheng.ttf',
-        'CormorantGaramond': 'assets/fonts/CormorantGaramond.ttf',
+        'Kalam': 'assets/fonts/Kalam-Regular.ttf',
       };
       for (final entry in bundled.entries) {
         expect(
@@ -150,7 +150,7 @@ void main() {
 
       const licenses = {
         'MaShanZheng-OFL.txt',
-        'CormorantGaramond-OFL.txt',
+        'Kalam-OFL.txt',
         'NotoSerifSC-OFL.txt',
         'NotoSansSC-OFL.txt',
         'Literata-OFL.txt',

@@ -78,7 +78,7 @@ adb shell am start -n app.diary008.diary008/.MainActivity
 
 右上角“设置”的“外观设置”区包括语言、应用字体、显示模式和纸张配色。主题选择即时生效；保存失败时恢复到上一次成功保存的选择。
 
-字体与语言、主题独立。Ma Shan Zheng 和 Cormorant Garamond 内置；Noto Serif SC／Literata 和 Noto Sans SC／Inter 首次选择时从 HTTPS 下载、校验并缓存，缓存后可离线使用。构建时通过 `--dart-define=DIARY008_FONT_BASE_URL=<HTTPS地址>` 指定字体源；未配置时会保留当前字体并提示。中文 Noto 字体是子集，缺字时使用后备字形。字体来源为 [Google Fonts](https://github.com/google/fonts)，六份完整 SIL OFL 文本位于 [`assets/fonts/`](assets/fonts/)，也可以在应用内的开源许可页阅读。
+字体与语言、主题独立。Ma Shan Zheng 和 Kalam 内置；Noto Serif SC／Literata 和 Noto Sans SC／Inter 首次选择时从 HTTPS 下载、校验并缓存，缓存后可离线使用。构建时通过 `--dart-define=DIARY008_FONT_BASE_URL=<HTTPS地址>` 指定字体源；未配置时会保留当前字体并提示。中文 Noto 字体是子集，缺字时使用后备字形。字体来源为 [Google Fonts](https://github.com/google/fonts)，六份完整 SIL OFL 文本位于 [`assets/fonts/`](assets/fonts/)，也可以在应用内的开源许可页阅读。
 
 ## 验证
 

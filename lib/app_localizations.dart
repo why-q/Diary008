@@ -426,8 +426,8 @@ class AppLocalizations {
   String get fontFollowSystemDescription =>
       isEnglish ? 'Use the device default font' : '使用设备的默认字体';
   String get fontHandwrittenDescription => isEnglish
-      ? 'Ma Shan Zheng · Cormorant Garamond (built in)'
-      : 'Ma Shan Zheng · Cormorant Garamond（内置）';
+      ? 'Ma Shan Zheng · Kalam (built in)'
+      : 'Ma Shan Zheng · Kalam（内置）';
   String get fontBookDescription => isEnglish
       ? 'Noto Serif SC · Literata (downloaded on first selection)'
       : 'Noto Serif SC · Literata（首次选择时下载）';

@@ -7,6 +7,8 @@
 ## Testing and delivery
 
 - If the Flutter SDK is missing, install it before running `flutter test`. Don't skip tests because the SDK isn't preinstalled.
+- After the tests pass, push the feature branch and enable auto-merge on its pull request into `main`. Don't bypass required checks or reviews.
+- Exception for this project's direct work on `main`: commits made on `main` are pushed straight to `main` without a pull request, as the user requested. Feature branches still use pull requests.
 
 ## Development workflow
 
@@ -16,5 +18,7 @@
 - Start code changes from the current `main` in a dedicated Git worktree. Before removing a worktree, check for unmerged commits or unique changes.
 - Independent verification runs after a task or milestone is committed and before the main agent integrates it. Assign a fresh worker, normally `fast-worker`, to check out the integrated branch in its own worktree, run the targeted tests, and report. The implementer does not perform this check.
 - Break implementation into small, independently executable tasks with acceptance criteria in [`PLAN.md`](PLAN.md). Append worktree, delegation, test, and commit events to [`PROCESS.jsonl`](PROCESS.jsonl); do not rewrite earlier entries.
+- Push every local `main` commit to GitHub immediately. This project intentionally pushes directly to `main`; do not open a pull request for these commits.
+- Do not hold back a commit for known defects. Fix the defect in a follow-up commit, push it, and repeat. The 15-minute commit cadence keeps the exposure short.
 - During active implementation, make at least one meaningful commit every 15 minutes, starting in the first 15 minutes. Assign commit checkpoints explicitly when delegating. Empty commits do not count.
 - For each small development task, run targeted tests covering the affected behavior. Run the full suite at milestone integration or sooner if a change has wider impact.

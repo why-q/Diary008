@@ -17,8 +17,9 @@ import 'entry_editor.dart';
 import 'journal_page.dart';
 import 'journal_theme.dart';
 import 'notebook.dart';
-import 'notebook_storage.dart';
+import 'json_notebook_repository.dart';
 import 'notebook_backup.dart';
+import 'notebook_repository.dart';
 import 'backup_encryption.dart';
 import 'backup_password_dialog.dart';
 import 'volume_picker.dart';
@@ -308,7 +309,7 @@ class NotebookPage extends StatefulWidget {
 class _NotebookPageState extends State<NotebookPage>
     with WidgetsBindingObserver {
   Notebook? _book;
-  File? _file;
+  NotebookRepository? _repository;
   String? _loadError;
   bool _busy = false;
   bool _destroying = false;
@@ -364,14 +365,18 @@ class _NotebookPageState extends State<NotebookPage>
     return _loading ??= _loadFromDisk().whenComplete(() => _loading = null);
   }
 
+  Future<NotebookRepository> _notebookRepository() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return JsonNotebookRepository(File('${dir.path}/notebook.json'));
+  }
+
   Future<void> _loadFromDisk() async {
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final book = await readNotebook(file);
+      final repository = await _notebookRepository();
+      final book = await repository.load();
       if (!mounted) return;
       setState(() {
-        _file = file;
+        _repository = repository;
         _book = book;
         _loadError = null;
       });
@@ -391,7 +396,7 @@ class _NotebookPageState extends State<NotebookPage>
     _busy = true;
     await Diagnostics.record('notebook.operation.requested', operation);
     try {
-      await writeNotebook(_file!, book);
+      await _repository!.save(book);
       await Diagnostics.record('notebook.operation.saved', operation);
       if (!mounted) return false;
       setState(() {
@@ -928,14 +933,13 @@ class _NotebookPageState extends State<NotebookPage>
       if (confirmed != true || !mounted) return _l10n.importCancelled;
       await _reminders.beginDestruction();
       gateAcquired = true;
-      final dir = await getApplicationDocumentsDirectory();
-      final file = _file ?? File('${dir.path}/notebook.json');
+      final repository = _repository ?? await _notebookRepository();
       final restored = backup.reconcile(DateTime.now());
-      await writeNotebook(file, restored);
+      await repository.save(restored);
       saved = true;
       if (mounted) {
         setState(() {
-          _file = file;
+          _repository = repository;
           _book = restored;
           _loadError = null;
           _selectedArchive = null;
@@ -982,13 +986,12 @@ class _NotebookPageState extends State<NotebookPage>
     try {
       await _reminders.beginDestruction();
       gateAcquired = true;
-      final dir = await getApplicationDocumentsDirectory();
-      final file = _file ?? File('${dir.path}/notebook.json');
+      final repository = _repository ?? await _notebookRepository();
       final empty = Notebook.empty();
-      await writeNotebook(file, empty);
+      await repository.save(empty);
       if (mounted) {
         setState(() {
-          _file = file;
+          _repository = repository;
           _book = empty;
           _loadError = null;
           _selectedArchive = null;

@@ -12,8 +12,9 @@ import 'package:timezone/timezone.dart' as tz;
 import 'app_language.dart';
 import 'app_localizations.dart';
 import 'diagnostics.dart';
+import 'json_notebook_repository.dart';
 import 'notebook.dart';
-import 'notebook_storage.dart';
+import 'notebook_repository.dart';
 import 'reminder_plan.dart';
 import 'reminder_preferences.dart';
 import 'reminder_preferences_storage.dart';
@@ -61,6 +62,11 @@ class ReminderService {
   Future<ReminderPreferences> loadPreferences() async =>
       readReminderPreferences(await _preferencesFile());
 
+  Future<NotebookRepository> _notebookRepository() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return JsonNotebookRepository(File('${dir.path}/notebook.json'));
+  }
+
   Future<Locale> _notificationLocale(Locale? requested) async {
     if (requested != null) return requested;
     final language =
@@ -97,11 +103,7 @@ class ReminderService {
       return;
     }
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final book = await readNotebook(
-        File('${dir.path}/notebook.json'),
-        migrate: false,
-      );
+      final book = await (await _notebookRepository()).load(migrate: false);
       if (_suspendedForDestruction || generation != _destructionGeneration) {
         await Diagnostics.record(
           'reminder.background_refresh.skipped',

@@ -6,7 +6,7 @@ See [AGENTS.md](AGENTS.md#development-workflow) for the standing development wor
 
 Diary008 is currently an Android-only Flutter prototype. The goal is to write on a phone or laptop, keep writing offline, and sync through storage the user chooses, including self-hosted options. Diary008 will not embed an AI provider. Users can opt in to bringing their own agents to work with diary entries and predictions.
 
-The `fast-worker` and `smart-worker` profiles are defined. M1 is complete. M2 is complete and integrated on `main` at `abebef4`. M3.1 is implemented on `m3-journal-foundation`. No laptop platform, sync provider, or MCP release scope has been selected.
+The `fast-worker` and `smart-worker` profiles are defined. M1 is complete. M2 is complete and integrated on `main` at `abebef4`. M3.1 is complete on `main` at `28e79a945826f5d2d0aec7b1b317a94a2e985791`. M3.2 is implemented on `m3-atomic-storage`. No laptop platform, sync provider, or MCP release scope has been selected.
 
 ## M1 — Wrap the existing JSON repository (complete)
 
@@ -43,7 +43,7 @@ Out of scope for M2: schema or dependency changes, sync, offline change tracking
 
 M3 stays offline and in-process. It adds no provider, no sync transport, and no production hookup.
 
-### M3.1 — Versioned entry journal foundation (implemented on `m3-journal-foundation`)
+### M3.1 — Versioned entry journal foundation (complete on `main`)
 
 Delivered as an isolated, pure-Dart module under `lib/journal/`, with no imports of `dart:io`, Flutter, or the existing notebook/storage code, and no production call sites.
 
@@ -54,6 +54,14 @@ Delivered as an isolated, pure-Dart module under `lib/journal/`, with no imports
 | M3.1.3 | Encode and decode the whole journal document. | A stored journal rejects an unsupported version, malformed entries, and duplicate operations instead of silently repairing or merging them. |
 | M3.1.4 | Record the M3.1 checkpoint. | One focused test file covers round trips including Unicode, clock and time-zone independence, replay/dedup, both collision shapes, malformed and unsupported data, and notebook/epoch isolation. |
 
+#### M3.1 completion record
+
+- Final tip on `main`: `28e79a945826f5d2d0aec7b1b317a94a2e985791`. All three M3.1 commits were pushed to `main`; no pull request was opened for them.
+- Independent reviewer conversation `f302d0cd2c8a4129b3daf77d93d5243c` reported no blockers.
+- Verification on Flutter 3.47.7 (Dart 3.13.5): 27 focused journal tests and 147 full-suite tests passed, the targeted analyzer run was clean, and a JavaScript compile and run check was verified.
+- M2 Android platform note: APK workflow run `44526762707` succeeded.
+- M3.1 stayed a pure-Dart protocol with no production call sites.
+
 Explicit non-goals for M3.1, all still unshipped:
 
 - No notebook+journal atomic write, no replay of a journal onto a notebook, and no conflict-resolution UI or policy beyond refusal.
@@ -61,12 +69,39 @@ Explicit non-goals for M3.1, all still unshipped:
 - No notebook or entry lineage inferred from content similarity or text equality; lineage is only the explicit `notebookId`/`epochId`/`entryId` carried by each operation.
 - No migration of `notebook.json`, no backup format change, no UI change, no dependency addition, and no scanning of real diary records.
 
-### Next checkpoints after M3.1
+### M3.2 — Atomic notebook and journal storage (implemented on `m3-atomic-storage`)
 
-1. **Atomic notebook and journal.** Persist a notebook change and its outgoing operation in one durable step, with a crash-safe ordering and a recovery read. Acceptance: an interrupted write leaves either both or neither, verified against temporary files.
-2. **Pure replay and conflicts.** Apply an accepted journal to a `Notebook` in a pure function, producing a deterministic state plus an explicit list of unresolved conflicts. Acceptance: identical inputs give identical output, concurrent text stays visible, and no text is dropped.
-3. **Backup, restore, and wipe barriers.** Define how an existing backup file, a restore, and an entry-destruction action interact with a pending journal. Acceptance: no barrier silently discards unshipped operations or resurrects deleted text.
-4. **M4 in-memory only.** Build a provider-neutral in-memory sync provider and test two-device convergence, retries, deduplication, and conflicts. In-memory only; no real provider, credentials, or real diary data.
+An experimental, explicitly instantiated file adapter under `lib/journal/`. It is not imported by `lib/main.dart` or any other production code, and it touches no existing app file.
+
+| Task | Work | Acceptance and focused verification |
+| --- | --- | --- |
+| M3.2.1 | Add a versioned envelope document that carries one notebook snapshot and one journal, plus an explicit `JournalScope` (`notebookId`, `epochId`) and a monotonic `revision`. | Decode rejects unknown keys, an unsupported envelope or notebook schema version, a missing or wrong format discriminator, a non-canonical snapshot, a duplicate operation, and a journal outside the requested scope. It never migrates and never repairs. Errors name fields only, never diary text. |
+| M3.2.2 | Add `AtomicNotebookStore`: one instance owns one file, and a commit writes the whole envelope to a same-directory temporary file, validates those exact bytes, then renames over the target. | A commit is refused as `stale` unless the caller's base revision and base content both match the stored envelope; it is refused as `conflict`, `duplicate`, `noChange`, `inconsistent`, or `scopeMismatch` when the journal already holds the operation or the snapshot contradicts it. Only `committed` claims a durable change, and it increments the revision by exactly one. |
+| M3.2.3 | Record the M3.2 checkpoint. | One focused test file covers reload, Unicode, scope, malformed and unsupported envelopes, disruption immediately before replacement (the prior notebook and journal remain together and the interrupted commit can be retried), replay/idempotence, stale-write protection, serialized overlapping commits, and that `notebook.json` is untouched. |
+
+Ownership contract and limits, stated in the code and tested:
+
+- Single-writer, in-process only. Commits on one instance are serialized; a second instance or process pointed at the same path can still lose updates. No lock file is created.
+- Durability is `writeAsBytes(flush: true)` plus a same-directory `rename`. That ordering survives a process crash; it is not a tested power-loss guarantee and the directory is not fsynced.
+- The adapter asserts, but cannot verify, that the offered snapshot reflects the offered operation. `Notebook` carries no notebook, epoch, or entry identity, so a commit of an operation for an absent entry succeeds today. That test pins the gap.
+
+Explicit non-goals for M3.2, all still unshipped:
+
+- No replay or projection of a journal onto a notebook, and no conflict-resolution policy beyond refusal.
+- No hookup to `notebook.json`, the reminder service, backups, restore, wipe, or the UI; no schema migration and no dependency change.
+- No cross-process or cross-isolate coordination, no power-loss guarantee, and no use of real diary data.
+
+### Next checkpoints after M3.2
+
+1. **Pure replay and conflicts.** Apply an accepted journal to a `Notebook` in a pure function, producing a deterministic state plus an explicit list of unresolved conflicts. Acceptance: identical inputs give identical output, concurrent text stays visible, and no text is dropped.
+2. **Backup, restore, and wipe barriers.** Define how an existing backup file, a restore, and an entry-destruction action interact with a pending journal. Acceptance: no barrier silently discards unshipped operations or resurrects deleted text.
+3. **M4 in-memory only.** Build a provider-neutral in-memory sync provider and test two-device convergence, retries, deduplication, and conflicts. In-memory only; no real provider, credentials, or real diary data.
+
+Remaining prerequisites before any production hookup:
+
+- Replay must define and check the snapshot/operation correspondence the store cannot verify.
+- A single-writer contract must be extended to cover a second instance, a second isolate, or a second process before the envelope file is shared with the app.
+- Backup, restore, and entry destruction need their own barriers so a pending journal is neither discarded nor used to resurrect deleted text.
 
 None of the remaining M3 or M4 work has shipped.
 

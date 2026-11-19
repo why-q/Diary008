@@ -24,6 +24,11 @@
 /// * Existing entries, their order, and every notebook metadata field are
 ///   preserved. Nothing is migrated, merged, or rewritten.
 ///
+/// [Notebook]'s mutating commands also guard on wall-clock expiry. Those guards
+/// are deliberately out of scope here: replay reads no clock, so it decides
+/// eligibility from structure alone (status, due presence, uniqueness) and
+/// leaves any time-based decision to a caller that supplies an explicit now.
+///
 /// Identity is exact. An operation is never matched to an entry by text,
 /// creation time, or volume position. Anything that cannot be applied exactly
 /// is reported as a typed [JournalReplayConflict] that keeps the original
@@ -327,9 +332,9 @@ abstract final class JournalReplay {
       ),
       appliedOperations: List.unmodifiable(applied),
       conflicts: List.unmodifiable(conflicts),
-      appliedRevisionsByEntry: Map.unmodifiable({
+      appliedRevisionsByEntry: Map<String, List<JournalOperation>>.unmodifiable({
         for (final entryId in revisionIds)
-          entryId: List.unmodifiable(revisions[entryId]!),
+          entryId: List<JournalOperation>.unmodifiable(revisions[entryId]!),
       }),
     );
   }

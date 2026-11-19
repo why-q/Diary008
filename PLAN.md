@@ -6,7 +6,7 @@ See [AGENTS.md](AGENTS.md#development-workflow) for the standing development wor
 
 Diary008 is currently an Android-only Flutter prototype. The goal is to write on a phone or laptop, keep writing offline, and sync through storage the user chooses, including self-hosted options. Diary008 will not embed an AI provider. Users can opt in to bringing their own agents to work with diary entries and predictions.
 
-The `fast-worker` and `smart-worker` profiles are defined. M1 is complete. The next milestone is application commands and queries. No laptop platform, sync provider, or MCP release scope has been selected.
+The `fast-worker` and `smart-worker` profiles are defined. M1 is complete. M2.1 and M2.2 are implemented on `m2-app-boundary`. No laptop platform, sync provider, or MCP release scope has been selected.
 
 ## M1 — Wrap the existing JSON repository (complete)
 
@@ -17,6 +17,15 @@ The `fast-worker` and `smart-worker` profiles are defined. M1 is complete. The n
 | M1.3 | After M1.1 and M1.2 are committed, assign a fresh worker to verify the integrated refactor independently in its own worktree. | Target the adapter and affected storage, startup, backup, and reminder tests. For the integrated milestone, run `flutter analyze` and the full `flutter test` suite; record any checks that could not run. |
 
 Out of scope for M1: a schema migration beyond the existing one, new dependencies, application command refactoring, networking, sync settings, laptop UI, and MCP. The first meaningful commit should deliver M1.1 with focused verification where available.
+
+## M2 — Application commands and queries
+
+| Task | Work | Acceptance and focused verification |
+| --- | --- | --- |
+| M2.1 | Add `NotebookApplication` commands for add, revise, fulfill, expiration reconciliation, sort, volume rename and creation, and archived-volume deletion, plus `NotebookQueries` for filtered current and archived entries. Both depend only on `Notebook` and `NotebookRepository`. | Commands delegate validation, expiry, archive scope, and ordering to `Notebook`, persist only accepted changes, and report applied, unchanged, rejected, or save-failed. Queries reuse the domain filter and sort rules. Test success, rejection, save failure, no-op paths, explicit time, sorting and filtering, and archive scope against real files. |
+| M2.2 | Route `lib/main.dart` notebook mutations and reads through the application boundary while keeping navigation, localized notices, filters, selection, reminder barriers, startup and storage ordering, snapshots, and busy semantics unchanged. | Existing domain, storage, startup, settings, reminder, and volume tests keep passing. Presentation still writes through `notebook.json` before updating the UI. |
+
+Out of scope for M2: schema or dependency changes, sync, offline change tracking, a new UI, and MCP.
 
 ## Roadmap after M1
 

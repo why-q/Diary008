@@ -251,6 +251,24 @@ void main() {
       expect((await repository.load()).toJson(), deleted.notebook.toJson());
     });
 
+    test('replacePersisted stores a restored notebook and adopts it', () async {
+      final app = await open();
+      await app.addEntry(text: '旧记录', due: DateTime(2026, 11, 1), now: now);
+      final restored = Notebook.empty().add('备份记录', DateTime(2026, 12, 1), now);
+
+      await app.replacePersisted(restored);
+
+      expect(app.notebook.toJson(), restored.toJson());
+      expect((await repository.load()).toJson(), restored.toJson());
+      final next = await app.addEntry(
+        text: '恢复后新增',
+        due: DateTime(2026, 12, 2),
+        now: now,
+      );
+      expect(next.applied, isTrue);
+      expect(next.notebook.entries.map((e) => e.text), ['备份记录', '恢复后新增']);
+    });
+
     test(
       'failed saves leave the previous notebook in memory and on disk',
       () async {

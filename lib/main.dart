@@ -16,6 +16,8 @@ import 'app_localizations.dart';
 import 'entry_editor.dart';
 import 'journal_page.dart';
 import 'journal_theme.dart';
+import 'application/notebook_application.dart';
+import 'application/notebook_queries.dart';
 import 'notebook.dart';
 import 'json_notebook_repository.dart';
 import 'notebook_backup.dart';
@@ -309,7 +311,7 @@ class NotebookPage extends StatefulWidget {
 class _NotebookPageState extends State<NotebookPage>
     with WidgetsBindingObserver {
   Notebook? _book;
-  NotebookRepository? _repository;
+  NotebookApplication? _application;
   String? _loadError;
   bool _busy = false;
   bool _destroying = false;
@@ -322,9 +324,12 @@ class _NotebookPageState extends State<NotebookPage>
   ReminderSyncResult? _reminderResult;
   bool _reminderError = false;
   int _reminderGeneration = 0;
-  NotebookArchive? get _archive => _selectedArchive == null || _book == null
-      ? null
-      : _book!.archives.firstWhere((a) => a.volume == _selectedArchive);
+  NotebookArchive? get _archive {
+    final book = _book;
+    if (_selectedArchive == null || book == null) return null;
+    return NotebookQueries(book).archive(_selectedArchive!);
+  }
+
   AppLocalizations get _l10n => AppLocalizations.of(context);
   Locale? _lastLocale;
 
@@ -370,13 +375,22 @@ class _NotebookPageState extends State<NotebookPage>
     return JsonNotebookRepository(File('${dir.path}/notebook.json'));
   }
 
+  Future<NotebookApplication> _applicationFor() async {
+    final existing = _application;
+    if (existing != null) return existing;
+    return NotebookApplication(
+      await _notebookRepository(),
+      _book ?? Notebook.empty(),
+    );
+  }
+
   Future<void> _loadFromDisk() async {
     try {
       final repository = await _notebookRepository();
       final book = await repository.load();
       if (!mounted) return;
       setState(() {
-        _repository = repository;
+        _application = NotebookApplication(repository, book);
         _book = book;
         _loadError = null;
       });
@@ -386,19 +400,29 @@ class _NotebookPageState extends State<NotebookPage>
     }
   }
 
-  Future<bool> _persist(
-    Notebook book, {
+  Future<NotebookCommandResult?> _command(
+    Future<NotebookCommandResult> Function(NotebookApplication app) run, {
     bool updateReminders = true,
     int? removedArchiveVolume,
     required String operation,
   }) async {
-    if (_busy) return false;
+    final application = _application;
+    if (_busy || application == null) return null;
     _busy = true;
     await Diagnostics.record('notebook.operation.requested', operation);
     try {
-      await _repository!.save(book);
+      final result = await run(application);
+      if (result.saveFailed) {
+        await Diagnostics.record(
+          'notebook.operation.failed',
+          '$operation ${result.error.runtimeType}\n${result.stackTrace}',
+        );
+        if (mounted) _notice(_l10n.saveFailed);
+        return result;
+      }
+      if (!result.applied) return result;
       await Diagnostics.record('notebook.operation.saved', operation);
-      if (!mounted) return false;
+      if (!mounted) return result;
       setState(() {
         if (removedArchiveVolume != null) {
           if (_selectedArchive == removedArchiveVolume) {
@@ -410,22 +434,16 @@ class _NotebookPageState extends State<NotebookPage>
           } else if (_selectedArchive == null) {
             _filter = NotebookFilter.pending;
           }
-        } else if (_book?.volume != book.volume && _selectedArchive == null) {
+        } else if (_book?.volume != result.notebook.volume &&
+            _selectedArchive == null) {
           _filter = NotebookFilter.pending;
         }
-        _book = book;
+        _book = result.notebook;
       });
       if (updateReminders && !_resumeExpiryPending) {
         unawaited(_refreshReminders());
       }
-      return true;
-    } catch (error, stack) {
-      await Diagnostics.record(
-        'notebook.operation.failed',
-        '$operation ${error.runtimeType}\n$stack',
-      );
-      if (mounted) _notice(_l10n.saveFailed);
-      return false;
+      return result;
     } finally {
       await _releaseBusy();
     }
@@ -442,12 +460,12 @@ class _NotebookPageState extends State<NotebookPage>
     );
   Future<bool> _expire() async {
     if (_book == null || _busy || !_book!.expired(DateTime.now())) return false;
-    final saved = await _persist(
-      _book!.reconcile(DateTime.now()),
+    final result = await _command(
+      (app) => app.reconcileExpiration(now: DateTime.now()),
       updateReminders: false,
       operation: 'expire',
     );
-    if (saved && mounted) {
+    if (result != null && result.applied && mounted) {
       _notice(_l10n.volumeExpired);
       await _refreshReminders();
     }
@@ -468,16 +486,27 @@ class _NotebookPageState extends State<NotebookPage>
       if (mounted) _notice(_l10n.originalExpired);
       return;
     }
-    try {
-      final now = DateTime.now();
-      final updated = original == null
-          ? _book!.add(draft.text, draft.due!, now)
-          : _book!.revise(original.id, draft.text, draft.due, now);
-      await _persist(updated, operation: original == null ? 'add' : 'revise');
-    } on ArgumentError {
-      _notice(_l10n.dateInPast);
-    } on StateError {
-      await _expire();
+    final now = DateTime.now();
+    final result = original == null
+        ? await _command(
+            (app) => app.addEntry(text: draft.text, due: draft.due!, now: now),
+            operation: 'add',
+          )
+        : await _command(
+            (app) => app.reviseEntry(
+              entryId: original.id,
+              text: draft.text,
+              due: draft.due,
+              now: now,
+            ),
+            operation: 'revise',
+          );
+    switch (result?.rejection) {
+      case NotebookCommandRejection.invalidArgument:
+        _notice(_l10n.dateInPast);
+      case NotebookCommandRejection.invalidState:
+        await _expire();
+      case null:
     }
   }
 
@@ -505,16 +534,14 @@ class _NotebookPageState extends State<NotebookPage>
     if (confirmed != true || !mounted || _busy || await _expire() || !mounted) {
       return;
     }
-    try {
-      if (await _persist(
-            _book!.fulfill(entry.id, DateTime.now()),
-            operation: 'fulfill',
-          ) &&
-          mounted) {
-        HapticFeedback.lightImpact();
-        _notice(_l10n.fulfilledNotice);
-      }
-    } on StateError {
+    final result = await _command(
+      (app) => app.fulfillEntry(entryId: entry.id, now: DateTime.now()),
+      operation: 'fulfill',
+    );
+    if (result != null && result.applied && mounted) {
+      HapticFeedback.lightImpact();
+      _notice(_l10n.fulfilledNotice);
+    } else if (result?.rejection == NotebookCommandRejection.invalidState) {
       await _expire();
     }
   }
@@ -523,8 +550,8 @@ class _NotebookPageState extends State<NotebookPage>
     if (_busy || await _expire() || !mounted || _book!.sortOrder == order) {
       return;
     }
-    await _persist(
-      _book!.withSortOrder(order),
+    await _command(
+      (app) => app.changeSortOrder(order),
       updateReminders: false,
       operation: 'sort',
     );
@@ -561,20 +588,17 @@ class _NotebookPageState extends State<NotebookPage>
 
   Future<void> _deleteArchivedVolume(int volume) async {
     if (_busy || await _expire() || !mounted) return;
-    try {
-      final next = _book!.deleteArchivedVolume(volume);
-      if (!await _persist(
-            next,
-            removedArchiveVolume: volume,
-            operation: 'delete_archive',
-          ) ||
-          !mounted) {
-        return;
-      }
-      _notice(_l10n.archiveDeleted);
-    } on StateError {
+    final result = await _command(
+      (app) => app.deleteArchivedVolume(volume),
+      removedArchiveVolume: volume,
+      operation: 'delete_archive',
+    );
+    if (result == null) return;
+    if (result.rejected) {
       if (mounted) _notice(_l10n.archiveDeleteOnly);
+      return;
     }
+    if (result.applied && mounted) _notice(_l10n.archiveDeleted);
   }
 
   Future<void> _editVolume({required bool create}) async {
@@ -595,29 +619,26 @@ class _NotebookPageState extends State<NotebookPage>
       if (mounted) _notice(_l10n.volumeStateChanged);
       return;
     }
-    try {
-      final next = create
-          ? _book!.startNewVolume(name, DateTime.now())
-          : _book!.withVolumeName(name);
-      if (!await _persist(
-            next,
-            updateReminders: create,
-            operation: create ? 'new_volume' : 'rename_volume',
-          ) ||
-          !mounted) {
-        return;
-      }
-      if (create) {
-        setState(() {
-          _selectedArchive = null;
-          _filter = NotebookFilter.pending;
-        });
-        _notice(_l10n.oldVolumeArchived);
-      } else {
-        _notice(_l10n.volumeNameSaved);
-      }
-    } on StateError {
+    final result = await _command(
+      create
+          ? (app) => app.startNewVolume(name: name, now: DateTime.now())
+          : (app) => app.renameVolume(name),
+      updateReminders: create,
+      operation: create ? 'new_volume' : 'rename_volume',
+    );
+    if (result?.rejection == NotebookCommandRejection.invalidState) {
       await _expire();
+      return;
+    }
+    if (result == null || !result.applied || !mounted) return;
+    if (create) {
+      setState(() {
+        _selectedArchive = null;
+        _filter = NotebookFilter.pending;
+      });
+      _notice(_l10n.oldVolumeArchived);
+    } else {
+      _notice(_l10n.volumeNameSaved);
     }
   }
 
@@ -933,13 +954,13 @@ class _NotebookPageState extends State<NotebookPage>
       if (confirmed != true || !mounted) return _l10n.importCancelled;
       await _reminders.beginDestruction();
       gateAcquired = true;
-      final repository = _repository ?? await _notebookRepository();
+      final application = await _applicationFor();
       final restored = backup.reconcile(DateTime.now());
-      await repository.save(restored);
+      await application.replacePersisted(restored);
       saved = true;
       if (mounted) {
         setState(() {
-          _repository = repository;
+          _application = application;
           _book = restored;
           _loadError = null;
           _selectedArchive = null;
@@ -986,12 +1007,12 @@ class _NotebookPageState extends State<NotebookPage>
     try {
       await _reminders.beginDestruction();
       gateAcquired = true;
-      final repository = _repository ?? await _notebookRepository();
+      final application = await _applicationFor();
       final empty = Notebook.empty();
-      await repository.save(empty);
+      await application.replacePersisted(empty);
       if (mounted) {
         setState(() {
-          _repository = repository;
+          _application = application;
           _book = empty;
           _loadError = null;
           _selectedArchive = null;
@@ -1054,9 +1075,16 @@ class _NotebookPageState extends State<NotebookPage>
   @override
   Widget build(BuildContext context) {
     final archive = _archive;
-    final entries =
-        _book?.viewEntries(filter: _filter, archivedVolume: _selectedArchive) ??
-        const <JournalEntry>[];
+    final book = _book;
+    final List<JournalEntry> entries;
+    if (book == null) {
+      entries = const <JournalEntry>[];
+    } else {
+      final queries = NotebookQueries(book);
+      entries = _selectedArchive == null
+          ? queries.currentEntries(filter: _filter, now: DateTime.now())
+          : queries.archivedEntries(volume: _selectedArchive!, filter: _filter);
+    }
     final volumeEntries =
         archive?.entries ?? _book?.entries ?? const <JournalEntry>[];
     final entryIndices = {

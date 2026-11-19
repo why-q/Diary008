@@ -74,9 +74,10 @@ class NotebookApplication {
 
   Notebook get notebook => _notebook;
 
-  /// Adopts a notebook that was stored directly through the repository, such
-  /// as a backup restore or a full reset.
-  void adoptPersisted(Notebook notebook) {
+  /// Stores [notebook] as-is and adopts it, for whole-notebook replacements
+  /// such as a backup restore or a full reset that bypass command rules.
+  Future<void> replacePersisted(Notebook notebook) async {
+    await _repository.save(notebook);
     _notebook = notebook;
   }
 

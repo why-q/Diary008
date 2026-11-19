@@ -25,8 +25,6 @@ enum JournalAdmission {
   rejected,
 }
 
-enum JournalRejection { foreignNotebook, foreignEpoch, invalidOperation }
-
 /// Why an operation could not be appended.
 class JournalConflict {
   const JournalConflict(this.admission, this.reason, {this.conflicting});

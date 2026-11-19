@@ -102,6 +102,13 @@ abstract class JournalOperation {
         field: 'operation.kind',
       ),
     };
+    requireExactKeys(
+      json,
+      kind == JournalOperationKind.create
+          ? {..._sharedKeys, 'createdOn'}
+          : _sharedKeys,
+      field: 'operation',
+    );
     final sequence = requireJsonValue(json, 'sequence', field: 'operation');
     if (sequence is! int) {
       throw const JournalFormatException(
@@ -153,7 +160,6 @@ abstract class JournalOperation {
           createdOn: CivilDate.parse(
             requireJsonValue(json, 'createdOn', field: 'operation'),
           ),
-          jsonKeys: json.keys.toSet(),
         );
       case JournalOperationKind.revise:
         return JournalReviseEntry(
@@ -165,7 +171,6 @@ abstract class JournalOperation {
           recordedAt: header['recordedAt']! as DateTime,
           entryId: header['entryId']! as String,
           text: header['text']! as String,
-          jsonKeys: json.keys.toSet(),
         );
     }
   }
@@ -199,7 +204,6 @@ class JournalCreateEntry extends JournalOperation {
     required super.entryId,
     required super.text,
     required this.createdOn,
-    Set<String>? jsonKeys,
   }) {
     _checkHeader(
       notebookId: notebookId,
@@ -210,9 +214,6 @@ class JournalCreateEntry extends JournalOperation {
       recordedAt: recordedAt,
       entryId: entryId,
       text: text,
-      jsonKeys: jsonKeys,
-      allowed: {..._sharedKeys, 'createdOn'},
-      field: 'operation',
     );
   }
 
@@ -239,7 +240,6 @@ class JournalReviseEntry extends JournalOperation {
     required super.recordedAt,
     required super.entryId,
     required super.text,
-    Set<String>? jsonKeys,
   }) {
     _checkHeader(
       notebookId: notebookId,
@@ -250,9 +250,6 @@ class JournalReviseEntry extends JournalOperation {
       recordedAt: recordedAt,
       entryId: entryId,
       text: text,
-      jsonKeys: jsonKeys,
-      allowed: _sharedKeys,
-      field: 'operation',
     );
   }
 
@@ -272,9 +269,6 @@ void _checkHeader({
   required DateTime recordedAt,
   required String entryId,
   required String text,
-  required Set<String>? jsonKeys,
-  required Set<String> allowed,
-  required String field,
 }) {
   requireOpaqueId(notebookId, field: 'notebookId');
   requireOpaqueId(epochId, field: 'epochId');
@@ -292,13 +286,6 @@ void _checkHeader({
     throw const JournalFormatException(
       'recordedAt must be UTC',
       field: 'operation.recordedAt',
-    );
-  }
-  if (jsonKeys != null) {
-    requireExactKeys(
-      {for (final key in jsonKeys) key: null},
-      allowed,
-      field: field,
     );
   }
 }

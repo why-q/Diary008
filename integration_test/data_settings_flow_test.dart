@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:diary008/main.dart';
 import 'package:diary008/notebook.dart';
@@ -10,7 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
@@ -18,9 +18,8 @@ void main() {
   testWidgets(
     'cancel preserves records; confirm destroys every volume across restart',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       final now = DateTime.now();
       final book = Notebook.empty()
           .add('历史记录秘密', now.add(const Duration(days: 10)), now)
@@ -70,18 +69,13 @@ void main() {
         );
       } finally {
         await tester.pumpWidget(const SizedBox.shrink());
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );
   testWidgets('an old reload cannot restore destroyed records', (tester) async {
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/notebook.json');
-    final original = await file.exists() ? await file.readAsString() : null;
+    final notebook = await snapshotNotebook();
+    final file = notebook.file;
     const channel = MethodChannel('app.diary008/diagnostics');
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -141,19 +135,14 @@ void main() {
       if (!releaseRead.isCompleted) releaseRead.complete();
       messenger.setMockMethodCallHandler(channel, null);
       await tester.pumpWidget(const SizedBox.shrink());
-      if (original != null) {
-        await file.writeAsString(original);
-      } else if (await file.exists()) {
-        await file.delete();
-      }
+      await notebook.restore();
     }
   });
   testWidgets(
     'a delayed reminder disk read cannot recreate destroyed reminders',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       const channel = MethodChannel('app.diary008/diagnostics');
       final messenger =
           TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
@@ -226,11 +215,7 @@ void main() {
         if (gateHeld) await reminders.endDestruction();
         await reminders.cancelAllForDestruction();
         messenger.setMockMethodCallHandler(channel, null);
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );

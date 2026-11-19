@@ -15,19 +15,20 @@ import 'package:integration_test/integration_test.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:path_provider/path_provider.dart';
 
+import 'support/notebook_test_helpers.dart';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   testWidgets(
     'daily summaries replace entry alarms and daily mode survives reload',
     (tester) async {
-      final documents = await getApplicationDocumentsDirectory();
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       final support = await getApplicationSupportDirectory();
-      final file = File('${documents.path}/notebook.json');
-      final preferencesFile = File('${support.path}/reminder_preferences.json');
-      final original = await file.exists() ? await file.readAsBytes() : null;
-      final originalPreferences = await preferencesFile.exists()
-          ? await preferencesFile.readAsBytes()
-          : null;
+      final preferences = await FileSnapshot.capture(
+        File('${support.path}/reminder_preferences.json'),
+      );
+      final preferencesFile = preferences.file;
       final reminders = ReminderService.instance;
       final plugin = FlutterLocalNotificationsPlugin();
       final now = DateTime.now();
@@ -270,16 +271,8 @@ void main() {
         await reminders.beginDestruction();
         try {
           await reminders.cancelAllForDestruction();
-          if (original != null) {
-            await file.writeAsBytes(original);
-          } else if (await file.exists()) {
-            await file.delete();
-          }
-          if (originalPreferences != null) {
-            await preferencesFile.writeAsBytes(originalPreferences);
-          } else if (await preferencesFile.exists()) {
-            await preferencesFile.delete();
-          }
+          await notebook.restore();
+          await preferences.restore();
         } finally {
           await reminders.endDestruction();
         }

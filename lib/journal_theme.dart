@@ -4,11 +4,6 @@ import 'package:flutter/material.dart';
 
 import 'theme_preferences.dart';
 
-// Kept for small consumers that use the original journal defaults. Runtime UI
-// colors come from JournalTheme so a preference change can repaint in place.
-const paper = Color(0xFFF1E8D6);
-const ink = Color(0xFF44382D);
-const fadedInk = Color(0xFF897B67);
 const journalText = TextStyle(fontSize: 21, height: 1.8);
 
 class JournalTheme extends ThemeExtension<JournalTheme> {

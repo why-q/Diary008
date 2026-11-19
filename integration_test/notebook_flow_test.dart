@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:diary008/main.dart';
 import 'package:diary008/journal_page.dart';
@@ -8,27 +7,16 @@ import 'package:flutter/material.dart';
 import 'package:diary008/notebook.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:path_provider/path_provider.dart';
+
+import 'support/notebook_test_helpers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
-  Future<void> chooseFilter(WidgetTester tester, String label) async {
-    tester.state<ScrollableState>(find.byType(Scrollable)).position.jumpTo(0);
-    await tester.pumpAndSettle();
-    final menu = find.byType(PopupMenuButton<NotebookFilter>);
-    await tester.ensureVisible(menu);
-    await tester.tap(menu);
-    await tester.pumpAndSettle();
-    await tester.tap(find.widgetWithText(PopupMenuItem<NotebookFilter>, label));
-    await tester.pumpAndSettle();
-  }
-
   testWidgets(
     'write, calendar, fulfill, revise, cancel, and reload saved notebook',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       Future<void> settle() async {
         await tester.pumpAndSettle(const Duration(milliseconds: 150));
       }
@@ -169,20 +157,15 @@ void main() {
         expect(restored.hitTestable(), findsOneWidget);
         expect(tester.takeException(), isNull);
       } finally {
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );
   testWidgets(
     'opening an expired volume clears all entries and persists the new volume',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       try {
         final yesterday = DateTime.now().subtract(const Duration(days: 1));
         final oldBook = Notebook.empty()
@@ -204,20 +187,15 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
       } finally {
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );
   testWidgets(
     'sort selection reorders intact groups, survives reload, and restores writing order',
     (tester) async {
-      final dir = await getApplicationDocumentsDirectory();
-      final file = File('${dir.path}/notebook.json');
-      final original = await file.exists() ? await file.readAsString() : null;
+      final notebook = await snapshotNotebook();
+      final file = notebook.file;
       try {
         final now = DateTime.now();
         var book = Notebook.empty()
@@ -296,11 +274,7 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
         await tester.pumpAndSettle();
       } finally {
-        if (original != null) {
-          await file.writeAsString(original);
-        } else if (await file.exists()) {
-          await file.delete();
-        }
+        await notebook.restore();
       }
     },
   );

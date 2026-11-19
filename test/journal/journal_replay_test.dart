@@ -80,7 +80,8 @@ Notebook _base({
 }) => Notebook(
   volume: _volume,
   volumeName: volumeName,
-  entries: entries ?? [_entry(id: 'entry-pending', due: DateTime.utc(2026, 12, 1))],
+  entries:
+      entries ?? [_entry(id: 'entry-pending', due: DateTime.utc(2026, 12, 1))],
   sortOrder: sortOrder,
   archives: archives,
 );
@@ -139,7 +140,11 @@ void main() {
           journal: journal,
         ),
         throwsA(
-          isA<JournalFormatException>().having((e) => e.field, 'field', 'epochId'),
+          isA<JournalFormatException>().having(
+            (e) => e.field,
+            'field',
+            'epochId',
+          ),
         ),
       );
     });
@@ -170,53 +175,72 @@ void main() {
   });
 
   group('creates', () {
-    test('project as due-less explanations with exact id and verbatim text', () {
-      const text = '  Emoji 😀, 中文, и кириллица, e\u0301  ';
-      final operation = _create(
-        entryId: 'entry-created',
-        text: text,
-        createdOn: '2026-11-17',
-        recordedAt: DateTime.utc(2026, 11, 19, 23, 59, 59, 999, 999),
-      );
-      final result = _project(_journal([operation]));
+    test(
+      'project as due-less explanations with exact id and verbatim text',
+      () {
+        const text = '  Emoji 😀, 中文, и кириллица, e\u0301  ';
+        final operation = _create(
+          entryId: 'entry-created',
+          text: text,
+          createdOn: '2026-11-17',
+          recordedAt: DateTime.utc(2026, 11, 19, 23, 59, 59, 999, 999),
+        );
+        final result = _project(_journal([operation]));
 
-      final created = result.notebook.entries.last;
-      expect(created.id, 'entry-created');
-      expect(created.text, text);
-      expect(created.createdOn, DateTime.utc(2026, 11, 17));
-      expect(created.createdAt, DateTime.utc(2026, 11, 19, 23, 59, 59, 999, 999));
-      expect(created.due, isNull);
-      expect(created.status, EntryStatus.explanation);
-      expect(created.parentId, isNull);
-      expect(result.notebook.volume, _volume);
-      expect(result.conflicts, isEmpty);
-      expect(result.appliedOperations.single, same(operation));
-    });
+        final created = result.notebook.entries.last;
+        expect(created.id, 'entry-created');
+        expect(created.text, text);
+        expect(created.createdOn, DateTime.utc(2026, 11, 17));
+        expect(
+          created.createdAt,
+          DateTime.utc(2026, 11, 19, 23, 59, 59, 999, 999),
+        );
+        expect(created.due, isNull);
+        expect(created.status, EntryStatus.explanation);
+        expect(created.parentId, isNull);
+        expect(result.notebook.volume, _volume);
+        expect(result.conflicts, isEmpty);
+        expect(result.appliedOperations.single, same(operation));
+      },
+    );
 
-    test('retain the explicit createdOn even when it differs from recordedAt', () {
-      final result = _project(
-        _journal([_create(createdOn: '2026-01-01', recordedAt: _at(5))]),
-      );
+    test(
+      'retain the explicit createdOn even when it differs from recordedAt',
+      () {
+        final result = _project(
+          _journal([_create(createdOn: '2026-01-01', recordedAt: _at(5))]),
+        );
 
-      expect(result.notebook.entries.last.createdOn, DateTime.utc(2026, 1, 1));
-    });
+        expect(
+          result.notebook.entries.last.createdOn,
+          DateTime.utc(2026, 1, 1),
+        );
+      },
+    );
 
-    test('collide with an existing current entry id instead of overwriting', () {
-      final base = _base(
-        entries: [
-          _entry(id: 'entry-taken', text: '原件', due: DateTime.utc(2026, 12, 1)),
-        ],
-      );
-      final operation = _create(entryId: 'entry-taken', text: '新的文本');
-      final result = _project(_journal([operation]), base: base);
+    test(
+      'collide with an existing current entry id instead of overwriting',
+      () {
+        final base = _base(
+          entries: [
+            _entry(
+              id: 'entry-taken',
+              text: '原件',
+              due: DateTime.utc(2026, 12, 1),
+            ),
+          ],
+        );
+        final operation = _create(entryId: 'entry-taken', text: '新的文本');
+        final result = _project(_journal([operation]), base: base);
 
-      expect(result.notebook.toJson(), base.toJson());
-      final conflict = result.conflicts.single;
-      expect(conflict.kind, JournalReplayConflictKind.entryIdCollision);
-      expect(conflict.operation, same(operation));
-      expect(conflict.operation.text, '新的文本');
-      expect(conflict.target?.id, 'entry-taken');
-    });
+        expect(result.notebook.toJson(), base.toJson());
+        final conflict = result.conflicts.single;
+        expect(conflict.kind, JournalReplayConflictKind.entryIdCollision);
+        expect(conflict.operation, same(operation));
+        expect(conflict.operation.text, '新的文本');
+        expect(conflict.target?.id, 'entry-taken');
+      },
+    );
 
     test('collide with an archived entry id', () {
       final archived = _entry(
@@ -243,7 +267,10 @@ void main() {
         base: base,
       );
 
-      expect(result.conflicts.single.kind, JournalReplayConflictKind.entryIdCollision);
+      expect(
+        result.conflicts.single.kind,
+        JournalReplayConflictKind.entryIdCollision,
+      );
       expect(result.conflicts.single.target?.text, '封存文本');
       expect(result.notebook.archives.single.entries.single.text, '封存文本');
     });
@@ -251,7 +278,8 @@ void main() {
     test('win over a supplement id the projection would generate', () {
       final base = _base();
       final revise = _revise(recordedAt: _at(20));
-      final supplementId = '$_volume-${_at(20).microsecondsSinceEpoch}-op-revise-a';
+      final supplementId =
+          '$_volume-${_at(20).microsecondsSinceEpoch}-op-revise-a';
       final create = _create(
         operationId: 'op-create-b',
         actorId: 'dev-beta',
@@ -294,13 +322,19 @@ void main() {
       expect(result.conflicts, isEmpty);
     });
 
-    test('use the UTC calendar date of the recorded instant for the supplement', () {
-      final result = _project(
-        _journal([_revise(recordedAt: DateTime.utc(2026, 11, 19, 23, 30))]),
-      );
+    test(
+      'use the UTC calendar date of the recorded instant for the supplement',
+      () {
+        final result = _project(
+          _journal([_revise(recordedAt: DateTime.utc(2026, 11, 19, 23, 30))]),
+        );
 
-      expect(result.notebook.entries.last.createdOn, DateTime.utc(2026, 11, 19));
-    });
+        expect(
+          result.notebook.entries.last.createdOn,
+          DateTime.utc(2026, 11, 19),
+        );
+      },
+    );
 
     test('keep multiple revisions by one actor, in canonical order', () {
       final first = _revise(
@@ -386,7 +420,10 @@ void main() {
       final conflict = result.conflicts.single;
       expect(conflict.kind, JournalReplayConflictKind.archivedTarget);
       expect(conflict.target?.id, 'entry-old');
-      expect(result.notebook.archives.single.entries.single.status, EntryStatus.pending);
+      expect(
+        result.notebook.archives.single.entries.single.status,
+        EntryStatus.pending,
+      );
     });
 
     test('report ineligible non-pending targets', () {
@@ -399,7 +436,9 @@ void main() {
           entries: [
             _entry(
               id: 'entry-pending',
-              due: status == EntryStatus.explanation ? null : DateTime.utc(2026, 12, 1),
+              due: status == EntryStatus.explanation
+                  ? null
+                  : DateTime.utc(2026, 12, 1),
               status: status,
             ),
           ],
@@ -419,7 +458,10 @@ void main() {
       final base = _base(entries: [_entry(id: 'entry-pending')]);
       final result = _project(_journal([_revise()]), base: base);
 
-      expect(result.conflicts.single.kind, JournalReplayConflictKind.dueLessTarget);
+      expect(
+        result.conflicts.single.kind,
+        JournalReplayConflictKind.dueLessTarget,
+      );
       expect(result.notebook.toJson(), base.toJson());
     });
 
@@ -427,12 +469,19 @@ void main() {
       final base = _base(
         entries: [
           _entry(id: 'entry-pending', due: DateTime.utc(2026, 12, 1)),
-          _entry(id: 'entry-pending', text: '重复 id', due: DateTime.utc(2026, 12, 2)),
+          _entry(
+            id: 'entry-pending',
+            text: '重复 id',
+            due: DateTime.utc(2026, 12, 2),
+          ),
         ],
       );
       final result = _project(_journal([_revise()]), base: base);
 
-      expect(result.conflicts.single.kind, JournalReplayConflictKind.ambiguousTarget);
+      expect(
+        result.conflicts.single.kind,
+        JournalReplayConflictKind.ambiguousTarget,
+      );
       expect(result.notebook.toJson(), base.toJson());
     });
 
@@ -469,9 +518,9 @@ void main() {
 
       expect(result.appliedOperations, [alpha, beta]);
       expect(
-        result.notebook.entries.where((e) => e.parentId == 'entry-pending').map(
-          (e) => e.text,
-        ),
+        result.notebook.entries
+            .where((e) => e.parentId == 'entry-pending')
+            .map((e) => e.text),
         ['甲的补充', '乙的补充'],
       );
       final conflict = result.conflicts.single;
@@ -562,19 +611,17 @@ void main() {
       final expected = _project(_journal(operations));
       final expectedJson = expected.notebook.toJson();
       final expectedConflicts = [
-        for (final c in expected.conflicts) '${c.kind.name}:${c.operation.operationId}',
+        for (final c in expected.conflicts)
+          '${c.kind.name}:${c.operation.operationId}',
       ];
 
       for (final order in _permutations(operations)) {
         final result = _project(_journal(order));
         expect(result.notebook.toJson(), expectedJson);
-        expect(
-          [
-            for (final c in result.conflicts)
-              '${c.kind.name}:${c.operation.operationId}',
-          ],
-          expectedConflicts,
-        );
+        expect([
+          for (final c in result.conflicts)
+            '${c.kind.name}:${c.operation.operationId}',
+        ], expectedConflicts);
         expect(
           result.appliedOperations.map((o) => o.operationId),
           expected.appliedOperations.map((o) => o.operationId),
@@ -608,10 +655,7 @@ void main() {
     });
 
     test('replaying the same input twice is identical', () {
-      final journal = _journal([
-        _create(),
-        _revise(),
-      ]);
+      final journal = _journal([_create(), _revise()]);
       final first = _project(journal);
       final second = _project(journal);
 
@@ -668,7 +712,10 @@ void main() {
         volumeName: '  带空格的名字  ',
         sortOrder: NotebookSortOrder.writing,
       );
-      final result = _project(_journal([_create(entryId: 'entry-new')]), base: base);
+      final result = _project(
+        _journal([_create(entryId: 'entry-new')]),
+        base: base,
+      );
 
       expect(result.notebook.volume, base.volume);
       expect(result.notebook.volumeName, base.volumeName);
@@ -771,7 +818,10 @@ void main() {
       final result = _project(_journal([_revise(entryId: 'entry-missing')]));
 
       expect(result.hasConflicts, isTrue);
-      expect(isSnapshotEquivalentToProjection(result.notebook, result), isFalse);
+      expect(
+        isSnapshotEquivalentToProjection(result.notebook, result),
+        isFalse,
+      );
     });
 
     test('rejects a drifted snapshot', () {

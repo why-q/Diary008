@@ -13,7 +13,8 @@
 /// * A create becomes a due-less [EntryStatus.explanation] entry in the current
 ///   volume. It keeps the exact `entryId`, the verbatim text (no trimming),
 ///   `createdAt` equal to the recorded instant, and `createdOn` equal to the
-///   operation's explicit civil date.
+///   operation's explicit civil date. Created entries follow the existing
+///   entries in canonical order.
 /// * A revision mirrors [Notebook.revise] as a supplement, not a replacement:
 ///   the base entry is marked [EntryStatus.revised] and a due-less explanation
 ///   supplement is placed directly after it. The supplement's civil date is
@@ -297,7 +298,9 @@ abstract final class JournalReplay {
     final revisionIds = revisions.keys.toList()..sort();
     for (final entryId in revisionIds) {
       final entryRevisions = revisions[entryId]!;
-      final actors = {for (final operation in entryRevisions) operation.actorId};
+      final actors = {
+        for (final operation in entryRevisions) operation.actorId,
+      };
       if (actors.length > 1) {
         conflicts.add(
           JournalReplayConflict(
@@ -332,10 +335,12 @@ abstract final class JournalReplay {
       ),
       appliedOperations: List.unmodifiable(applied),
       conflicts: List.unmodifiable(conflicts),
-      appliedRevisionsByEntry: Map<String, List<JournalOperation>>.unmodifiable({
-        for (final entryId in revisionIds)
-          entryId: List<JournalOperation>.unmodifiable(revisions[entryId]!),
-      }),
+      appliedRevisionsByEntry: Map<String, List<JournalOperation>>.unmodifiable(
+        {
+          for (final entryId in revisionIds)
+            entryId: List<JournalOperation>.unmodifiable(revisions[entryId]!),
+        },
+      ),
     );
   }
 

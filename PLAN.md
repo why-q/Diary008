@@ -1,40 +1,32 @@
-# Agent profile delivery plan
+# Diary008 development plan
 
-## Goal
+## Goal and current status
 
-Create four reusable project-level OpenHands sub-agent profiles for implementation work, using the requested model assignments, and remove the obsolete architecture-specific profile names if they exist.
+Diary008 is currently an Android-only Flutter prototype. The goal is to write on a phone or laptop, keep writing offline, and sync through storage the user chooses, including self-hosted options. Diary008 will not embed an AI provider. Users can opt in to bringing their own agents to work with diary entries and predictions.
 
-## Constraints
+The generic OpenHands profiles are merged. Product implementation has not started. No laptop platform, sync provider, or MCP release scope has been selected.
 
-- Work only in the dedicated Git worktree `/workspace/project/Diary008-agent-profiles` on branch `chore/agent-profiles`.
-- Do not use sub-agents for planning or discussion.
-- Use `gpt-6.2-sol` for `planner`.
-- Use `deepseek-v4.1-flash` for `fast-worker`, `tester`, and `reviewer`.
-- Include high-reasoning operating guidance without inventing unsupported frontmatter fields.
-- Store profiles in `.agents/agents/`.
-- Keep `PROCESS.jsonl` append-only.
-- Create a meaningful commit within the first 15 minutes of implementation work.
+## M1 — Wrap the existing JSON repository (next)
 
-## Tasks
+| Task | Work | Acceptance and focused verification |
+| --- | --- | --- |
+| M1.1 | Add a file-independent `NotebookRepository` contract (`load` and `save`, with a way to request a non-migrating read). Implement `JsonNotebookRepository` using the existing `readNotebook` and `writeNotebook` helpers. | The contract depends on the `Notebook` domain model, not `File` or Flutter. Test the real adapter against temporary files: missing file, round trip, legacy migration, non-migrating read, and corrupt JSON. |
+| M1.2 | After M1.1, route `lib/main.dart` notebook loads and writes through the repository, including backup restore and record destruction. Use the same repository boundary for the read-only notebook access in `lib/reminder_service.dart`. | Keep `notebook.json`, its schema, atomic replacement, diagnostics, error behavior, and save-before-UI-update ordering intact. Preserve backup compatibility and reminder barriers. Background refresh must not migrate or write the notebook. |
+| M1.3 | Prepare test fixtures in a separate worktree once the contract is agreed; verify the integrated refactor independently. | Run the new adapter tests and the existing notebook storage, startup, backup, and reminder tests first. Then run `flutter analyze` and `flutter test`. Run Android integration tests only on a disposable device, following `AGENTS.md`; record any checks that could not run. |
 
-1. Initialize the dedicated worktree, agent directory, plan, and process log.
-2. Create `planner.md` with planning-only behavior, detailed task decomposition, dependencies, acceptance criteria, and test checkpoints.
-3. Create `fast-worker.md` with focused implementation behavior, worktree discipline, scope control, and early focused testing.
-4. Create `tester.md` with test-first reproduction, focused and regression testing, and clear failure reporting.
-5. Create `reviewer.md` with diff review for correctness, security, compatibility, maintainability, and acceptance criteria.
-6. Search for and remove obsolete `sync-engine-builder.md`, `mcp-interface-builder.md`, and `sync-qa-engineer.md` files if present.
-7. Validate YAML frontmatter, exact names, model assignments, required examples, tool declarations, and profile paths.
-8. Append completion and validation events to `PROCESS.jsonl` without rewriting prior records.
-9. Commit the profile changes on `chore/agent-profiles`.
+Out of scope for M1: a schema migration beyond the existing one, new dependencies, application command refactoring, networking, sync settings, laptop UI, and MCP. The first meaningful commit should deliver M1.1 with focused verification where available.
 
-## Acceptance criteria
+## Roadmap after M1
 
-- Exactly the requested generic profiles are present under `.agents/agents/`.
-- Each profile filename matches its `name` field.
-- Each description contains at least two concrete `<example>` tags.
-- `planner` uses `gpt-6.2-sol`; the other three use `deepseek-v4.1-flash`.
-- Every profile has only the tools it needs.
-- Obsolete architecture-specific profile files are absent.
-- Profile files are valid Markdown with valid YAML frontmatter.
-- The process log is append-only and records the work.
-- A meaningful Git commit contains the changes.
+1. **Application commands and queries.** Move diary mutations behind application services so the Android UI, a future laptop client, and future agent integrations can use the same domain rules. Keep `Notebook` independent of storage, transport, Flutter, and MCP.
+2. **Offline change tracking.** Define versioned operations with stable identifiers, deduplicate replays, and persist the notebook update and its outgoing operation together. Keep existing JSON backup import/export compatible. Use deterministic conflict rules that never silently discard diary text; keep concurrent edits visible and define deletion behavior before enabling multi-device writes.
+3. **Provider-neutral sync.** Start with an in-memory provider and test two-device convergence, retries, deduplication, and conflicts. Then select a real provider. WebDAV is a candidate, as are a self-hosted API and other storage adapters. Agree on authentication, encryption, and how the transport prevents lost updates before enabling sync with real diary data.
+4. **Laptop writing.** Choose web or native desktop separately. Deliver opening, creating, and editing entries with offline local saves and synchronization with Android. Use an end-to-end acceptance check: edits made offline on both devices survive reconnection without silent data loss.
+5. **Bring-your-own-agent access.** MCP is the integration protocol; skills are optional guidance for external agents. Put MCP above the application query/command layer, not directly over files. Start with opt-in, scoped read access for entry search, history, and prediction queries. Add draft creation only if approved and require user confirmation before a draft becomes a diary entry. No bundled AI provider.
+
+## Development workflow
+
+- The main agent owns planning and discussion, stays on its selected model, and reviews, integrates, and verifies delegated work.
+- Use `.agents/agents/fast-worker.md`, `tester.md`, and `reviewer.md` for scoped implementation, testing, and review on `deepseek-v4.1-flash` with high reasoning effort. The optional `planner` profile uses `gpt-6.2-sol` with high reasoning effort; it does not replace the main agent's planning.
+- Make code changes in a dedicated Git worktree; give independent testing its own worktree. Start from the current `main` and check that worktrees contain no unmerged commits or unique changes before removing them.
+- Keep tasks and acceptance criteria in this file; append worktree, delegation, test, and commit events to [`PROCESS.jsonl`](PROCESS.jsonl). Aim for a meaningful commit within 15 minutes of starting implementation. Run focused tests early and broader checks before finishing.

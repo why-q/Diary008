@@ -5,3 +5,4 @@
 {"timestamp":"2026-11-19T03:15:08Z","event":"validation","checks":["four profiles present","names match filenames","two examples per description","requested model assignments","obsolete profiles absent"],"result":"passed"}
 {"timestamp":"2026-11-19T03:15:42Z","event":"ready_to_commit","files":["PLAN.md","PROCESS.jsonl",".agents/agents/planner.md",".agents/agents/fast-worker.md",".agents/agents/tester.md",".agents/agents/reviewer.md"],"ignore_override":".agents is ignored by repository policy, but these requested project-level agent profiles are explicitly force-added."}
 {"timestamp":"2026-11-19T03:16:01Z","event":"commit_created","commit":"fd9e7bf","branch":"chore/agent-profiles","result":"success"}
+{"timestamp":"2026-11-19T03:32:55Z","event":"roadmap_documented","first_milestone":"M1: Wrap the existing JSON repository","product_implementation":"not_started"}

@@ -4,6 +4,8 @@ Android 专用 Flutter 原型。连续长篇日记排版，纸张底纹、墨色
 
 当前版本：`0.4.0+4`。Release 仍用 Android 调试密钥签名，仅供本地测试。参见[验证状态](#验证)和[发布检查清单](docs/release-checklist.md)。
 
+后续计划支持电脑写作、离线优先的跨设备同步，以及接入用户自选的 AI 助手（不内置 AI 服务）。这些功能尚未实现；开发顺序见[开发计划](PLAN.md)。
+
 ## 开发与构建
 
 需要 Flutter（项目记录的版本为 3.47.7 / Dart 3.13.5）、JDK 17 和 Android SDK（开发环境使用 API 36 / Build Tools 36.0.0）。安装 Android Studio 或 Android 命令行工具后，用 `flutter doctor` 检查环境，并启动 Android 模拟器或连接已授权 USB 调试的测试设备。

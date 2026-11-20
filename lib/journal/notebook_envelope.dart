@@ -91,7 +91,7 @@ class NotebookEnvelope {
         field: 'envelope.revision',
       );
     }
-    _requireValidSnapshot(notebook);
+    validateNotebookSnapshot(notebook);
   }
 
   final int revision;
@@ -227,8 +227,9 @@ class NotebookEnvelope {
 /// Invariants the app already enforces when it imports a notebook.
 ///
 /// They are repeated here because an envelope must never persist a snapshot
-/// that the notebook storage would refuse to load.
-void _requireValidSnapshot(Notebook notebook) {
+/// that the notebook storage would refuse to load. The check is public so a
+/// projection baseline is rejected at construction with the same rules.
+void validateNotebookSnapshot(Notebook notebook) {
   if (notebook.volume < 1) {
     throw const EnvelopeFormatException(
       'notebook volume must be at least 1',

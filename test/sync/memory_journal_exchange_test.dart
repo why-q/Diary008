@@ -55,6 +55,14 @@ JournalReviseEntry reviseOp({
   text: text,
 );
 
+/// Matches an operation by content, not by object identity.
+///
+/// The exchange stores its own decoded value, so a submitted object and the
+/// stored operation are never the same instance.
+Matcher sameContent(JournalOperation expected) => isA<JournalOperation>()
+    .having((operation) => operation.canonicalForm, 'canonicalForm',
+        expected.canonicalForm);
+
 JournalPublishCommitted committed(JournalPublishResult result) {
   expect(result, isA<JournalPublishCommitted>());
   return result as JournalPublishCommitted;
@@ -128,10 +136,10 @@ void main() {
       );
       final snapshot = await exchange.fetch(scope: scope());
 
-      expect(result.appended, [first, second]);
+      expect(result.appended, [sameContent(first), sameContent(second)]);
       expect(result.replayed, isEmpty);
       expect(result.conflicts, isEmpty);
-      expect(snapshot.operations, [first, second]);
+      expect(snapshot.operations, [sameContent(first), sameContent(second)]);
       expect(snapshot.scope, scope());
       expect(snapshot.length, 2);
     });
@@ -183,11 +191,14 @@ void main() {
 
       final snapshot = await exchange.fetch(scope: scope());
 
-      expect(snapshot.byOperationId('op-a1'), create);
+      expect(snapshot.byOperationId('op-a1'), sameContent(create));
       expect(snapshot.byOperationId('op-missing'), isNull);
-      expect(snapshot.byActorSequence('dev-alpha', 2), revise);
+      expect(snapshot.byActorSequence('dev-alpha', 2), sameContent(revise));
       expect(snapshot.byActorSequence('dev-alpha', 3), isNull);
-      expect(snapshot.operationsForEntry('entry-77'), [create, revise]);
+      expect(snapshot.operationsForEntry('entry-77'), [
+        sameContent(create),
+        sameContent(revise),
+      ]);
       expect(snapshot.operationsForEntry('entry-other'), isEmpty);
     });
   });
@@ -203,7 +214,7 @@ void main() {
       );
 
       expect(replay.isNoOp, isTrue);
-      expect(replay.replayed, [operation]);
+      expect(replay.replayed, [sameContent(operation)]);
       expect(replay.conflicts, isEmpty);
       expect((await exchange.fetch(scope: scope())).length, 1);
     });
@@ -270,7 +281,7 @@ void main() {
       final conflict = result.conflicts.single;
       expect(conflict.kind, JournalRefusalKind.operationIdCollision);
       expect(conflict.incoming.text, '后来改写的内容。');
-      expect(conflict.accepted, accepted);
+      expect(conflict.accepted, sameContent(accepted));
       expect(conflict.accepted!.text, '第一次写下的内容。');
       expect(result.isNoOp, isTrue);
 
@@ -300,7 +311,7 @@ void main() {
 
       final conflict = result.conflicts.single;
       expect(conflict.kind, JournalRefusalKind.actorSequenceCollision);
-      expect(conflict.accepted, accepted);
+      expect(conflict.accepted, sameContent(accepted));
       expect(conflict.incoming.operationId, 'op-a2');
       expect((await exchange.fetch(scope: scope())).length, 1);
     });
@@ -349,7 +360,7 @@ void main() {
         ),
       );
 
-      expect(result.appended, [fresh]);
+      expect(result.appended, [sameContent(fresh)]);
       expect(result.conflicts, hasLength(1));
       expect(result.hasConflicts, isTrue);
       expect((await exchange.fetch(scope: scope())).length, 2);
@@ -422,7 +433,7 @@ void main() {
 
         expect(result.appendedAny, isFalse);
         expect(result.refusals.single.kind, JournalRefusalKind.outOfScope);
-        expect(result.refusals.single.incoming, wrong);
+        expect(result.refusals.single.incoming, sameContent(wrong));
         expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
       },
     );
@@ -629,7 +640,7 @@ void main() {
 
         final snapshot = await exchange.fetch(scope: scope());
         expect(snapshot.length, 2);
-        expect(snapshot.byOperationId('op-a1'), slow);
+        expect(snapshot.byOperationId('op-a1'), sameContent(slow));
       },
     );
 
@@ -648,9 +659,9 @@ void main() {
         final snapshot = await exchange.fetch(scope: scope());
 
         expect(snapshot.length, 3);
-        expect(snapshot.byActorSequence('dev-alpha', 1), create);
-        expect(snapshot.byActorSequence('dev-alpha', 2), earlier);
-        expect(snapshot.byActorSequence('dev-alpha', 3), later);
+        expect(snapshot.byActorSequence('dev-alpha', 1), sameContent(create));
+        expect(snapshot.byActorSequence('dev-alpha', 2), sameContent(earlier));
+        expect(snapshot.byActorSequence('dev-alpha', 3), sameContent(later));
       },
     );
 
@@ -757,7 +768,7 @@ void main() {
         );
 
         final snapshot = await exchange.fetch(scope: scope());
-        expect(snapshot.operations, [accepted]);
+        expect(snapshot.operations, [sameContent(accepted)]);
         expect(snapshot.byOperationId('op-b1'), isNull);
       },
     );
@@ -772,9 +783,188 @@ void main() {
 
       expect(operation.canonicalForm, before);
       expect(operation.text, '我会考完雅思。');
+      // The exchange stores its own decoded value, not the submitted object.
       expect(
         (await exchange.fetch(scope: scope())).operations.single,
-        same(operation),
+        isNot(same(operation)),
+      );
+      expect(
+        (await exchange.fetch(scope: scope())).operations.single.canonicalForm,
+        before,
+      );
+    });
+  });
+
+  group('admitted representation', () {
+    test('a source object changed after publish cannot alter the journal',
+        () async {
+      final exchange = MemoryJournalExchange();
+      final source = _DriftingCreate()..text = '先写下的内容。';
+      await exchange.publish(scope: scope(), operations: [source]);
+
+      final before = await exchange.fetch(scope: scope());
+      final canonicalBefore = before.canonicalForm;
+
+      source.text = '发布之后改掉的内容。';
+      source.createdOn = CivilDate(2026, 11, 20);
+
+      final after = await exchange.fetch(scope: scope());
+      expect(after.canonicalForm, canonicalBefore);
+      expect(after.operations.single.text, '先写下的内容。');
+      expect(
+        (after.operations.single as JournalCreateEntry).createdOn,
+        CivilDate(2026, 11, 19),
+      );
+      expect((await exchange.fetch(scope: scope())).length, 1);
+    });
+
+    test('a source object changed after publish cannot force a collision',
+        () async {
+      final exchange = MemoryJournalExchange();
+      final source = _DriftingCreate()..text = '原始文本。';
+      await exchange.publish(scope: scope(), operations: [source]);
+
+      // Drift the source into different content, then replay it. Identity is
+      // judged on the stored value, so this is a divergent collision, not a
+      // silent overwrite of accepted text.
+      source.text = '漂移之后的文本。';
+      final result = committed(
+        await exchange.publish(scope: scope(), operations: [source]),
+      );
+
+      expect(
+        result.conflicts.single.kind,
+        JournalRefusalKind.operationIdCollision,
+      );
+      expect(result.conflicts.single.incoming.text, '漂移之后的文本。');
+      expect(result.conflicts.single.accepted!.text, '原始文本。');
+      expect(
+        (await exchange.fetch(scope: scope())).operations.single.text,
+        '原始文本。',
+      );
+    });
+
+    test('the stored operation is a decode round trip, not the submitted one',
+        () async {
+      final exchange = MemoryJournalExchange();
+      final source = createOp();
+      await exchange.publish(scope: scope(), operations: [source]);
+
+      final stored = (await exchange.fetch(scope: scope())).operations.single;
+
+      expect(stored, isNot(same(source)));
+      expect(stored, isA<JournalCreateEntry>());
+      expect(
+        JournalOperation.fromJson(stored.toJson()).canonicalForm,
+        source.canonicalForm,
+      );
+      expect(stored.canonicalForm, source.canonicalForm);
+      expect(stored.runtimeType, JournalCreateEntry);
+      // Identity is stable across every read of the same exchange.
+      expect(
+        (await exchange.fetch(scope: scope())).operations.single,
+        sameContent(stored),
+      );
+    });
+
+    test('a stored nested civil date is the decoded value, not a shared one',
+        () async {
+      final exchange = MemoryJournalExchange();
+      final source = createOp(createdOn: '2026-02-28');
+      await exchange.publish(scope: scope(), operations: [source]);
+
+      final stored =
+          (await exchange.fetch(scope: scope())).operations.single
+              as JournalCreateEntry;
+      final original = source.createdOn;
+
+      expect(stored.createdOn, CivilDate(2026, 2, 28));
+      expect(stored.createdOn, isNot(same(original)));
+      expect(stored.createdOn.text, '2026-02-28');
+    });
+
+    test('an operation whose encoding is invalid is refused with a clean reason',
+        () async {
+      final exchange = MemoryJournalExchange();
+
+      final result = rejected(
+        await exchange.publish(
+          scope: scope(),
+          operations: [_MangledOperation()],
+        ),
+      );
+
+      final refusal = result.refusals.single;
+      expect(refusal.kind, JournalRefusalKind.invalidOperation);
+      expect(refusal.reason, contains('is not a valid journal operation'));
+      // The reason quotes the identifier only; it never leaks diary text.
+      expect(refusal.reason, isNot(contains('看起来正常的文本')));
+      expect(refusal.reason, contains('op-mangled'));
+      expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
+    });
+
+    test('a rejected operation with an unreadable identifier is still refused',
+        () async {
+      final exchange = MemoryJournalExchange();
+
+      final result = rejected(
+        await exchange.publish(
+          scope: scope(),
+          operations: [_ThrowingIdMangledOperation()],
+        ),
+      );
+
+      final refusal = result.refusals.single;
+      expect(refusal.kind, JournalRefusalKind.invalidOperation);
+      expect(refusal.reason, contains('unidentified'));
+      expect(refusal.reason, isNot(contains('未解码的文本')));
+    });
+
+    test('a replay and a collision differ only in what was already accepted',
+        () async {
+      final exchange = MemoryJournalExchange();
+      await exchange.publish(scope: scope(), operations: [createOp()]);
+
+      final replay = committed(
+        await exchange.publish(scope: scope(), operations: [createOp()]),
+      );
+      final collision = committed(
+        await exchange.publish(
+          scope: scope(),
+          operations: [createOp(text: '不同的内容。')],
+        ),
+      );
+
+      expect(replay.isNoOp, isTrue);
+      expect(replay.replayed, hasLength(1));
+      expect(replay.conflicts, isEmpty);
+      expect(collision.isNoOp, isTrue);
+      expect(collision.replayed, isEmpty);
+      expect(collision.conflicts, hasLength(1));
+      expect((await exchange.fetch(scope: scope())).length, 1);
+    });
+
+    test('scope is judged on the decoded value, not the submitted object',
+        () async {
+      final exchange = MemoryJournalExchange();
+      final source = _DriftingScopeCreate();
+
+      // The object reports the requested scope while it is validated, then
+      // claims another notebook. Only the decoded value is scope-checked, so
+      // the batch is admitted under the scope its content actually names.
+      final result = await exchange.publish(
+        scope: scope(),
+        operations: [source],
+      );
+
+      expect(result, isA<JournalPublishRejected>());
+      final refusal = (result as JournalPublishRejected).refusals.single;
+      expect(refusal.kind, JournalRefusalKind.outOfScope);
+      expect(refusal.reason, contains('nb-drifted'));
+      expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
+      expect(
+        (await exchange.fetch(scope: scope(notebookId: 'nb-drifted'))).isEmpty,
+        isTrue,
       );
     });
   });
@@ -833,6 +1023,96 @@ class _MangledOperation extends JournalCreateEntry {
         text: '看起来正常的文本。',
         createdOn: CivilDate(2026, 11, 19),
       );
+
+  @override
+  Map<String, Object?> toJson() => super.toJson()..remove('entryId');
+}
+
+/// A caller subclass with live, overridable state.
+///
+/// `JournalOperation` declares `final` fields, but Dart lets a subclass
+/// override the implicit getter, so a stored instance would keep reporting
+/// whatever the caller sets next. The exchange must never retain one.
+class _DriftingCreate extends JournalCreateEntry {
+  _DriftingCreate()
+    : _text = '初始文本。',
+      _createdOn = CivilDate(2026, 11, 19),
+      super(
+        notebookId: _notebook,
+        epochId: _epoch,
+        actorId: 'dev-drifting',
+        sequence: 1,
+        operationId: 'op-drifting',
+        recordedAt: DateTime.utc(2026, 11, 19, 12),
+        entryId: 'entry-drifting',
+        text: '初始文本。',
+        createdOn: CivilDate(2026, 11, 19),
+      );
+
+  String _text;
+  CivilDate _createdOn;
+
+  set text(String value) => _text = value;
+
+  set createdOn(CivilDate value) => _createdOn = value;
+
+  @override
+  String get text => _text;
+
+  @override
+  CivilDate get createdOn => _createdOn;
+}
+
+/// A subclass whose scope getter claims the requested notebook while its own
+/// encoding names a different one.
+class _DriftingScopeCreate extends JournalCreateEntry {
+  _DriftingScopeCreate()
+    : super(
+        notebookId: _notebook,
+        epochId: _epoch,
+        actorId: 'dev-scope',
+        sequence: 1,
+        operationId: 'op-scope',
+        recordedAt: DateTime.utc(2026, 11, 19, 12),
+        entryId: 'entry-scope',
+        text: '作用域漂移。',
+        createdOn: CivilDate(2026, 11, 19),
+      );
+
+  @override
+  String get notebookId => _notebook;
+
+  @override
+  Map<String, Object?> toJson() =>
+      super.toJson()..['notebookId'] = 'nb-drifted';
+}
+
+/// An invalid operation whose identifier getter throws, so a diagnostic must
+/// not depend on reading it.
+///
+/// The getter only throws once construction is done, because the base
+/// constructor validates the identifier it was given.
+class _ThrowingIdMangledOperation extends JournalCreateEntry {
+  _ThrowingIdMangledOperation()
+    : super(
+        notebookId: _notebook,
+        epochId: _epoch,
+        actorId: 'dev-throwing',
+        sequence: 1,
+        operationId: 'op-throwing',
+        recordedAt: DateTime.utc(2026, 11, 19, 12),
+        entryId: 'entry-throwing',
+        text: '未解码的文本。',
+        createdOn: CivilDate(2026, 11, 19),
+      ) {
+    _armed = true;
+  }
+
+  bool _armed = false;
+
+  @override
+  String get operationId =>
+      _armed ? throw StateError('identifier unavailable') : 'op-throwing';
 
   @override
   Map<String, Object?> toJson() => super.toJson()..remove('entryId');

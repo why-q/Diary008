@@ -6,7 +6,7 @@
 /// transport, a credential, a file, or a clock, and nothing here decides how
 /// operations are applied to a notebook.
 ///
-/// Two rules shape the contract:
+/// Three rules shape the contract:
 ///
 /// * The exchange never rewrites accepted text. Divergent variants are reported
 ///   as refusals that carry both the incoming and the accepted operation, so a
@@ -14,6 +14,11 @@
 /// * Ordering of arrival is not identity. Identity is the operation's own
 ///   `operationId`, `actorId`+`sequence`, and `entryId`, so a delayed, repeated,
 ///   or out-of-order batch cannot change what an operation means.
+/// * What is stored is the validated immutable representation of an operation,
+///   never the caller's object. An implementation must judge scope, identity,
+///   and content on a value it validated itself, because a `JournalOperation`
+///   subclass can override a field getter, `toJson`, or equality, and its
+///   nested values are only immutable by convention.
 library;
 
 import '../journal/journal_operation.dart';
@@ -21,8 +26,10 @@ import 'journal_scope.dart';
 
 /// A scoped, immutable view of the operations an exchange holds.
 ///
-/// The snapshot is detached: it owns its operation list, and the operations it
-/// carries are immutable, so a caller cannot mutate exchange state through it.
+/// The snapshot is detached: it owns its operation list, and it carries the
+/// exchange's own validated operations, so a caller cannot mutate exchange
+/// state through it and cannot alter what it reports by keeping a reference to
+/// a submitted object.
 class JournalSnapshot {
   JournalSnapshot({
     required this.scope,
@@ -117,7 +124,13 @@ class JournalRefusal {
   final JournalRefusalKind kind;
   final String reason;
 
-  /// The operation the caller submitted.
+  /// The operation the caller submitted, or its validated representation when
+  /// the refusal is about decoded content.
+  ///
+  /// For [JournalRefusalKind.invalidOperation] this is the caller's own object,
+  /// because no valid representation of it exists. Every other refusal carries
+  /// a value the exchange decoded itself, so the text a caller sees here is the
+  /// text the exchange actually judged.
   final JournalOperation incoming;
 
   /// The operation already accepted under the same identity, if any. It is
@@ -164,7 +177,13 @@ final class JournalPublishCommitted extends JournalPublishResult {
 
   bool get hasConflicts => conflicts.isNotEmpty;
 
-  /// True when nothing was appended, which is the normal outcome of a replay.
+  /// True when this call appended nothing.
+  ///
+  /// That covers two different outcomes, and [conflicts] tells them apart: a
+  /// batch whose operations were all already accepted (a pure replay), and a
+  /// batch whose operations were all refused. An empty batch is the third case
+  /// and is also a no-op. A batch that appends some operations and refuses
+  /// others is not a no-op.
   bool get isNoOp => appended.isEmpty;
 }
 
@@ -196,6 +215,11 @@ abstract class JournalExchange {
   ///
   /// The call must not mutate [operations] or any operation it contains. A
   /// failure must leave both the input and the exchange state unchanged.
+  ///
+  /// An implementation must not retain the submitted objects. What it admits,
+  /// compares, and later returns must be a representation it validated itself,
+  /// so that later changes to a submitted object — or an override on it — cannot
+  /// affect a snapshot, a replay decision, or a collision comparison.
   Future<JournalPublishResult> publish({
     required JournalScope scope,
     required Iterable<JournalOperation> operations,

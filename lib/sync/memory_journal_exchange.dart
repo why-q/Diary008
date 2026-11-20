@@ -17,10 +17,16 @@
 ///   text is never overwritten.
 /// * The commit step is synchronous, so a publish that overlaps another cannot
 ///   lose the other's changes, and no last-writer-wins rule exists.
+/// * Only the validated immutable representation is admitted. Each submitted
+///   operation is re-encoded and decoded, and the decoded value alone is
+///   scope-checked, compared, and stored. A caller subclass is never retained,
+///   so an overridable getter, an overridable `toJson`, or a nested mutable
+///   value cannot keep changing what a journal or a snapshot reports.
 library;
 
 import '../journal/journal.dart';
 import '../journal/journal_operation.dart';
+import '../journal/journal_values.dart';
 import 'journal_exchange.dart';
 import 'journal_scope.dart';
 
@@ -48,34 +54,35 @@ class MemoryJournalExchange implements JournalExchange {
     final batch = List<JournalOperation>.unmodifiable(operations);
     final rejected = <JournalRefusal>[];
     final validated = <JournalOperation>[];
-    for (final operation in batch) {
-      if (!scope.contains(operation)) {
-        rejected.add(
-          JournalRefusal(
-            scope: scope,
-            kind: JournalRefusalKind.outOfScope,
-            reason:
-                'operation "${operation.operationId}" belongs to '
-                '${operation.notebookId}/${operation.epochId}, not $scope',
-            incoming: operation,
-          ),
-        );
-        continue;
-      }
-      if (!_isWellFormed(operation)) {
+    for (final submitted in batch) {
+      final admitted = _canonicalize(submitted);
+      if (admitted == null) {
         rejected.add(
           JournalRefusal(
             scope: scope,
             kind: JournalRefusalKind.invalidOperation,
             reason:
-                'operation "${operation.operationId}" is not a valid '
+                'operation "${_describe(submitted)}" is not a valid '
                 'journal operation',
-            incoming: operation,
+            incoming: submitted,
           ),
         );
         continue;
       }
-      validated.add(operation);
+      if (!scope.contains(admitted)) {
+        rejected.add(
+          JournalRefusal(
+            scope: scope,
+            kind: JournalRefusalKind.outOfScope,
+            reason:
+                'operation "${admitted.operationId}" belongs to '
+                '${admitted.notebookId}/${admitted.epochId}, not $scope',
+            incoming: admitted,
+          ),
+        );
+        continue;
+      }
+      validated.add(admitted);
     }
     if (rejected.isNotEmpty) {
       return JournalPublishRejected(scope: scope, refusals: rejected);
@@ -165,15 +172,32 @@ class MemoryJournalExchange implements JournalExchange {
     return JournalRefusalKind.entryCreationCollision;
   }
 
-  /// Re-decodes the operation's canonical JSON, which is the same validation
-  /// applied to stored data, so a subclass that bypasses construction checks
-  /// cannot slip into a journal.
-  static bool _isWellFormed(JournalOperation operation) {
+  /// Returns the validated immutable operation [submitted] stands for, or
+  /// `null` when its own encoding is not a valid journal document.
+  ///
+  /// The round trip is the admission gate: decoding re-validates every field,
+  /// including the nested civil date, and the returned value is a fresh
+  /// framework object. Nothing from the caller's object survives except its
+  /// encoded content, so a subclass cannot be admitted by looking valid at the
+  /// moment it is checked and then drifting afterwards.
+  static JournalOperation? _canonicalize(JournalOperation submitted) {
     try {
-      JournalOperation.fromJson(operation.toJson());
-      return true;
+      return JournalOperation.fromJson(submitted.toJson());
     } on Object {
-      return false;
+      return null;
+    }
+  }
+
+  /// Identifier for a diagnostic about an operation that could not be decoded.
+  ///
+  /// A rejected operation is untrusted, so its own `operationId` getter is not
+  /// read: a subclass could throw from it or return diary text. Only a decoded
+  /// operation's identifiers are quoted anywhere.
+  static String _describe(JournalOperation submitted) {
+    try {
+      return requireOpaqueId(submitted.operationId, field: 'operationId');
+    } on Object {
+      return 'unidentified';
     }
   }
 }

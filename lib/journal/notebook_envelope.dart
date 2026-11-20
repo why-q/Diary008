@@ -91,7 +91,7 @@ class NotebookEnvelope {
         field: 'envelope.revision',
       );
     }
-    _requireValidSnapshot(notebook);
+    validateNotebookSnapshot(notebook);
   }
 
   final int revision;
@@ -224,11 +224,45 @@ class NotebookEnvelope {
   }
 }
 
+/// The single admitted form of a snapshot that will be encoded to disk.
+///
+/// The candidate's own `toJson` is called exactly once. The value returned
+/// here is the *decoded* one, so no caller subclass survives: a snapshot whose
+/// getters and encoding disagree cannot be validated with one shape and
+/// persisted with another. The caller's object is never mutated or inspected
+/// again after this call.
+///
+/// Returns null when the candidate cannot produce a canonically decodable
+/// snapshot that satisfies [validateNotebookSnapshot].
+final class CanonicalSnapshot {
+  CanonicalSnapshot._(this.notebook);
+
+  /// A plain snapshot decoded from the candidate's encoding.
+  final Notebook notebook;
+
+  static CanonicalSnapshot? tryCanonicalize(Notebook? candidate) {
+    if (candidate == null) return null;
+    try {
+      final bytes = jsonEncode(candidate.toJson());
+      final decoded = Notebook.fromJson(
+        Map<String, dynamic>.from(jsonDecode(bytes) as Map),
+      );
+      validateNotebookSnapshot(decoded);
+      return CanonicalSnapshot._(decoded);
+    } on Object {
+      // Any failure is a refusal: a snapshot that cannot round trip is never
+      // repaired, normalized, or partially accepted.
+      return null;
+    }
+  }
+}
+
 /// Invariants the app already enforces when it imports a notebook.
 ///
 /// They are repeated here because an envelope must never persist a snapshot
-/// that the notebook storage would refuse to load.
-void _requireValidSnapshot(Notebook notebook) {
+/// that the notebook storage would refuse to load. The check is public so a
+/// projection baseline is rejected at construction with the same rules.
+void validateNotebookSnapshot(Notebook notebook) {
   if (notebook.volume < 1) {
     throw const EnvelopeFormatException(
       'notebook volume must be at least 1',

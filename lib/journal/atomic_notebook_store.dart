@@ -26,6 +26,15 @@
 /// directory, so a stale temp file from a crashed writer is never reused and
 /// never overwrites another writer's bytes.
 ///
+/// Projection-backed validation (opt in)
+/// -------------------------------------
+/// By default a commit still trusts the caller's snapshot/operation pairing.
+/// [AtomicNotebookStore.projectionValidated] turns on the stronger mode: the
+/// caller supplies an explicit, immutable pre-journal baseline, and every
+/// commit replays the journal onto that baseline and compares both the
+/// persisted snapshot and the offered next snapshot with the result. A
+/// conflict or any mismatch is refused before a temporary file is written.
+///
 /// This adapter is experimental and is not wired into the app. `notebook.json`
 /// keeps its own format and its own writer, and is refused as a target.
 library;
@@ -36,6 +45,7 @@ import 'dart:io';
 import '../notebook.dart';
 import 'journal.dart';
 import 'journal_operation.dart';
+import 'journal_projection_gate.dart';
 import 'notebook_envelope.dart';
 
 /// File name reserved for the app's notebook document.
@@ -97,6 +107,17 @@ enum EnvelopeCommitStatus {
   /// The envelope or operation belongs to another notebook or epoch. Nothing
   /// was written.
   scopeMismatch,
+
+  /// Projection validation is on and a snapshot is not the journal's
+  /// projection onto the baseline: either the persisted snapshot already
+  /// drifted from its journal, or the offered snapshot does not match the
+  /// projection. Nothing was written.
+  projectionMismatch,
+
+  /// Projection validation is on and the offered journal cannot be projected
+  /// onto the baseline without an unresolved conflict, so no snapshot can
+  /// represent it. Nothing was written.
+  projectionConflict,
 
   /// Validation or the file replacement failed. The stored bytes were left
   /// untouched. Never reported as [committed].
@@ -178,7 +199,41 @@ String _normalizePath(String path) {
 }
 
 class AtomicNotebookStore {
-  AtomicNotebookStore(this.file, {required this.scope, this.beforeReplace}) {
+  AtomicNotebookStore(this.file, {required this.scope, this.beforeReplace})
+    : projectionBaseline = null {
+    _refuseReservedTarget(file);
+  }
+
+  /// Same store with projection-backed validation turned on.
+  ///
+  /// [baseline] is required, so this mode cannot be entered without one. It
+  /// must name the same scope as [scope] and must be the snapshot taken before
+  /// this envelope accepted any operation; a baseline from another scope is
+  /// refused at construction, before any read or write.
+  AtomicNotebookStore.projectionValidated(
+    this.file, {
+    required this.scope,
+    required JournalProjectionBaseline baseline,
+    this.beforeReplace,
+  }) : projectionBaseline = _requireMatchingBaseline(scope, baseline) {
+    _refuseReservedTarget(file);
+  }
+
+  static JournalProjectionBaseline _requireMatchingBaseline(
+    JournalScope scope,
+    JournalProjectionBaseline baseline,
+  ) {
+    if (baseline.scope != scope) {
+      throw ArgumentError.value(
+        baseline,
+        'baseline',
+        'projection baseline belongs to another notebook or epoch',
+      );
+    }
+    return baseline;
+  }
+
+  static void _refuseReservedTarget(File file) {
     if (file.uri.pathSegments.isEmpty || _targetsReservedNotebook(file)) {
       // The app's notebook document is never an envelope. Refuse the target at
       // construction so no write, temp file, or rename can touch it, on every
@@ -201,6 +256,10 @@ class AtomicNotebookStore {
   /// Test seam that runs after the temporary file is written and validated but
   /// before it replaces [file]. Production callers leave it null.
   final Future<void> Function()? beforeReplace;
+
+  /// The pre-journal baseline when projection validation is on, otherwise
+  /// null. See [AtomicNotebookStore.projectionValidated].
+  final JournalProjectionBaseline? projectionBaseline;
 
   int _tempCounter = 0;
 
@@ -303,6 +362,62 @@ class AtomicNotebookStore {
       );
     }
 
+    // The caller's snapshot is inspected once here, before canonicalization,
+    // only so a caller object whose own getters are broken surfaces its error
+    // instead of being silently replaced by its encoding. A format rejection
+    // falls through, because the canonical form decides the outcome; any other
+    // error propagates unchanged. The caller object never influences what is
+    // compared, persisted, or returned.
+    try {
+      validateNotebookSnapshot(notebook);
+    } on EnvelopeFormatException {
+      // Reported below as a typed result by the canonicalization path.
+    }
+
+    // Canonicalize the offered snapshot exactly once, here, inside the lock.
+    // The decoded value is the only snapshot this call will ever encode,
+    // compare, or return: the caller's object is not consulted again, so a
+    // snapshot whose getters and encoding disagree cannot be validated with
+    // one shape and persisted with another.
+    final offered = CanonicalSnapshot.tryCanonicalize(notebook);
+
+    final baseline = projectionBaseline;
+    if (baseline != null) {
+      // The persisted snapshot must already be the journal's projection.
+      // Checked before admission so an already drifted or corrupt projection
+      // is refused even for an operation that would otherwise be a no-op.
+      final storedCheck = checkStoredProjection(
+        baseline: baseline,
+        stored: stored,
+      );
+      if (!storedCheck.isValid) {
+        return EnvelopeCommitResult(
+          _statusForProjection(storedCheck),
+          envelope: stored,
+          reason: storedCheck.diagnosticCode,
+        );
+      }
+      if (offered == null) {
+        return EnvelopeCommitResult(
+          EnvelopeCommitStatus.projectionMismatch,
+          envelope: stored,
+          reason: projectionDiagnosticCode(
+            JournalProjectionStatus.projectionMismatch,
+          ),
+        );
+      }
+    }
+    if (offered == null) {
+      // Even without projection validation, a snapshot that cannot round trip
+      // cannot be persisted without risking a different snapshot on disk.
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.failed,
+        envelope: stored,
+        reason: 'offered snapshot is not canonically decodable',
+      );
+    }
+    final offeredNotebook = offered.notebook;
+
     final journal = Journal(
       notebookId: base.journal.notebookId,
       epochId: base.journal.epochId,
@@ -328,7 +443,7 @@ class AtomicNotebookStore {
         );
       case JournalAdmission.replayed:
         return EnvelopeCommitResult(
-          _sameNotebook(stored.notebook, notebook)
+          _sameNotebook(stored.notebook, offeredNotebook)
               ? EnvelopeCommitStatus.noChange
               : EnvelopeCommitStatus.duplicate,
           envelope: stored,
@@ -339,7 +454,25 @@ class AtomicNotebookStore {
         break;
     }
 
-    if (_sameNotebook(stored.notebook, notebook)) {
+    if (baseline != null) {
+      // The offered snapshot must be the projection of the journal that is
+      // about to be stored, not merely different from the stored one.
+      final offeredCheck = checkOfferedProjection(
+        baseline: baseline,
+        journal: journal,
+        notebook: offered,
+      );
+      if (!offeredCheck.isValid) {
+        return EnvelopeCommitResult(
+          _statusForProjection(offeredCheck),
+          envelope: stored,
+          admission: admission,
+          reason: offeredCheck.diagnosticCode,
+        );
+      }
+    }
+
+    if (_sameNotebook(stored.notebook, offeredNotebook)) {
       // The journal changed but the snapshot did not. Persisting that would
       // record an operation whose effect is not in the notebook, so refuse.
       return EnvelopeCommitResult(
@@ -358,7 +491,7 @@ class AtomicNotebookStore {
     try {
       next = NotebookEnvelope(
         revision: base.revision + 1,
-        notebook: notebook,
+        notebook: offeredNotebook,
         journal: journal,
       );
     } on EnvelopeFormatException {
@@ -369,7 +502,6 @@ class AtomicNotebookStore {
         reason: 'proposed notebook snapshot is not a valid stored snapshot',
       );
     }
-
     return _replace(stored, next, admission);
   }
 
@@ -450,6 +582,19 @@ class AtomicNotebookStore {
     }
   }
 }
+
+EnvelopeCommitStatus _statusForProjection(JournalProjectionCheck check) =>
+    switch (check.status) {
+      JournalProjectionStatus.projectionConflict =>
+        EnvelopeCommitStatus.projectionConflict,
+      JournalProjectionStatus.scopeMismatch =>
+        EnvelopeCommitStatus.scopeMismatch,
+      JournalProjectionStatus.valid ||
+      JournalProjectionStatus.baselineInvalid ||
+      JournalProjectionStatus.baselineMismatch ||
+      JournalProjectionStatus.projectionMismatch =>
+        EnvelopeCommitStatus.projectionMismatch,
+    };
 
 bool _sameNotebook(Notebook a, Notebook b) =>
     jsonEncode(a.toJson()) == jsonEncode(b.toJson());

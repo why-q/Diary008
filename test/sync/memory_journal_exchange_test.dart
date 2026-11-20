@@ -10,10 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 const _notebook = 'nb-8f2c';
 const _epoch = 'ep-01';
 
-JournalScope scope({
-  String notebookId = _notebook,
-  String epochId = _epoch,
-}) => JournalScope(notebookId: notebookId, epochId: epochId);
+JournalScope scope({String notebookId = _notebook, String epochId = _epoch}) =>
+    JournalScope(notebookId: notebookId, epochId: epochId);
 
 JournalCreateEntry createOp({
   String operationId = 'op-a1',
@@ -162,6 +160,21 @@ void main() {
       expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
     });
 
+    test('results echo the scope the caller requested', () async {
+      final exchange = MemoryJournalExchange();
+      final requested = scope(notebookId: 'nb-echo', epochId: 'ep-echo');
+
+      final result = committed(
+        await exchange.publish(
+          scope: requested,
+          operations: [createOp(notebookId: 'nb-echo', epochId: 'ep-echo')],
+        ),
+      );
+
+      expect(result.scope, requested);
+      expect((await exchange.fetch(scope: requested)).scope, requested);
+    });
+
     test('snapshot lookups answer by identity, not by position', () async {
       final exchange = MemoryJournalExchange();
       final create = createOp();
@@ -255,10 +268,7 @@ void main() {
       );
 
       final conflict = result.conflicts.single;
-      expect(
-        conflict.kind,
-        JournalRefusalKind.operationIdCollision,
-      );
+      expect(conflict.kind, JournalRefusalKind.operationIdCollision);
       expect(conflict.incoming.text, '后来改写的内容。');
       expect(conflict.accepted, accepted);
       expect(conflict.accepted!.text, '第一次写下的内容。');
@@ -332,7 +342,10 @@ void main() {
       final result = committed(
         await exchange.publish(
           scope: scope(),
-          operations: [createOp(text: '冲突的文本。'), fresh],
+          operations: [
+            createOp(text: '冲突的文本。'),
+            fresh,
+          ],
         ),
       );
 
@@ -341,6 +354,35 @@ void main() {
       expect(result.hasConflicts, isTrue);
       expect((await exchange.fetch(scope: scope())).length, 2);
     });
+
+    test(
+      'a divergent duplicate inside one batch keeps the first variant',
+      () async {
+        final exchange = MemoryJournalExchange();
+
+        final result = committed(
+          await exchange.publish(
+            scope: scope(),
+            operations: [
+              createOp(text: '批次里的第一版。'),
+              createOp(text: '批次里的第二版。'),
+            ],
+          ),
+        );
+
+        expect(result.appended, hasLength(1));
+        expect(
+          result.conflicts.single.kind,
+          JournalRefusalKind.operationIdCollision,
+        );
+        expect(result.conflicts.single.incoming.text, '批次里的第二版。');
+        expect(result.conflicts.single.accepted!.text, '批次里的第一版。');
+        expect(
+          (await exchange.fetch(scope: scope())).operations.single.text,
+          '批次里的第一版。',
+        );
+      },
+    );
 
     test('both divergent variants stay visible to the caller', () async {
       final exchange = MemoryJournalExchange();
@@ -354,34 +396,36 @@ void main() {
       final conflict = result.conflicts.single;
       final snapshot = await exchange.fetch(scope: scope());
 
-      expect({conflict.incoming.text, conflict.accepted!.text}, {
-        '我的版本。',
-        '对方的版本。',
-      });
+      expect(
+        {conflict.incoming.text, conflict.accepted!.text},
+        {'我的版本。', '对方的版本。'},
+      );
       expect(snapshot.operations.single.text, '我的版本。');
     });
   });
 
   group('whole-batch validation', () {
-    test('a wrong-scope operation refuses the batch with no partial append',
-        () async {
-      final exchange = MemoryJournalExchange();
-      final good = createOp();
-      final wrong = createOp(
-        operationId: 'op-foreign',
-        notebookId: 'nb-other',
-        epochId: 'ep-other',
-      );
+    test(
+      'a wrong-scope operation refuses the batch with no partial append',
+      () async {
+        final exchange = MemoryJournalExchange();
+        final good = createOp();
+        final wrong = createOp(
+          operationId: 'op-foreign',
+          notebookId: 'nb-other',
+          epochId: 'ep-other',
+        );
 
-      final result = rejected(
-        await exchange.publish(scope: scope(), operations: [good, wrong]),
-      );
+        final result = rejected(
+          await exchange.publish(scope: scope(), operations: [good, wrong]),
+        );
 
-      expect(result.appendedAny, isFalse);
-      expect(result.refusals.single.kind, JournalRefusalKind.outOfScope);
-      expect(result.refusals.single.incoming, wrong);
-      expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
-    });
+        expect(result.appendedAny, isFalse);
+        expect(result.refusals.single.kind, JournalRefusalKind.outOfScope);
+        expect(result.refusals.single.incoming, wrong);
+        expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
+      },
+    );
 
     test('another epoch of the same notebook is out of scope', () async {
       final exchange = MemoryJournalExchange();
@@ -393,7 +437,10 @@ void main() {
       final result = rejected(
         await exchange.publish(
           scope: scope(),
-          operations: [createOp(), createOp(operationId: 'op-a2', epochId: 'ep-02')],
+          operations: [
+            createOp(),
+            createOp(operationId: 'op-a2', epochId: 'ep-02'),
+          ],
         ),
       );
 
@@ -402,19 +449,24 @@ void main() {
       expect((await exchange.fetch(scope: scope(epochId: 'ep-02'))).length, 1);
     });
 
-    test('an invalid operation refuses the batch with no partial append',
-        () async {
-      final exchange = MemoryJournalExchange();
-      final good = createOp();
-      final invalid = _MangledOperation();
+    test(
+      'an invalid operation refuses the batch with no partial append',
+      () async {
+        final exchange = MemoryJournalExchange();
+        final good = createOp();
+        final invalid = _MangledOperation();
 
-      final result = rejected(
-        await exchange.publish(scope: scope(), operations: [good, invalid]),
-      );
+        final result = rejected(
+          await exchange.publish(scope: scope(), operations: [good, invalid]),
+        );
 
-      expect(result.refusals.single.kind, JournalRefusalKind.invalidOperation);
-      expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
-    });
+        expect(
+          result.refusals.single.kind,
+          JournalRefusalKind.invalidOperation,
+        );
+        expect((await exchange.fetch(scope: scope())).isEmpty, isTrue);
+      },
+    );
 
     test('a refused batch leaves an existing journal untouched', () async {
       final exchange = MemoryJournalExchange();
@@ -422,7 +474,10 @@ void main() {
 
       await exchange.publish(
         scope: scope(),
-        operations: [reviseOp(), createOp(notebookId: 'nb-other')],
+        operations: [
+          reviseOp(),
+          createOp(notebookId: 'nb-other'),
+        ],
       );
 
       final snapshot = await exchange.fetch(scope: scope());
@@ -443,8 +498,14 @@ void main() {
         operations: [createOp(notebookId: 'nb-two', text: '另一本日记。')],
       );
 
-      expect((await exchange.fetch(scope: scope(notebookId: 'nb-one'))).length, 1);
-      expect((await exchange.fetch(scope: scope(notebookId: 'nb-two'))).length, 1);
+      expect(
+        (await exchange.fetch(scope: scope(notebookId: 'nb-one'))).length,
+        1,
+      );
+      expect(
+        (await exchange.fetch(scope: scope(notebookId: 'nb-two'))).length,
+        1,
+      );
       expect(
         (await exchange.fetch(scope: scope(notebookId: 'nb-two')))
             .operations
@@ -462,7 +523,10 @@ void main() {
         operations: [createOp(epochId: 'ep-01')],
       );
 
-      expect((await exchange.fetch(scope: scope(epochId: 'ep-02'))).isEmpty, isTrue);
+      expect(
+        (await exchange.fetch(scope: scope(epochId: 'ep-02'))).isEmpty,
+        isTrue,
+      );
       // The same operation id is free in another epoch of the same notebook.
       final result = committed(
         await exchange.publish(
@@ -494,15 +558,20 @@ void main() {
       final snapshot = await exchange.fetch(scope: scope());
 
       expect(() => snapshot.operations.add(reviseOp()), throwsA(anything));
-      expect(() => snapshot.operationsForEntry('entry-77').clear(),
-          throwsA(anything));
+      expect(
+        () => snapshot.operationsForEntry('entry-77').clear(),
+        throwsA(anything),
+      );
     });
 
     test('snapshot identity ignores arrival order', () async {
       final first = MemoryJournalExchange();
       final second = MemoryJournalExchange();
       await first.publish(scope: scope(), operations: [createOp(), reviseOp()]);
-      await second.publish(scope: scope(), operations: [reviseOp(), createOp()]);
+      await second.publish(
+        scope: scope(),
+        operations: [reviseOp(), createOp()],
+      );
 
       final a = await first.fetch(scope: scope());
       final b = await second.fetch(scope: scope());
@@ -539,69 +608,77 @@ void main() {
 
       expect(results.every((r) => r.appendedAny), isTrue);
       expect(snapshot.length, 2);
-      expect(
-        snapshot.operations.map((op) => op.actorId).toSet(),
-        {'dev-alpha', 'dev-beta'},
-      );
+      expect(snapshot.operations.map((op) => op.actorId).toSet(), {
+        'dev-alpha',
+        'dev-beta',
+      });
     });
 
-    test('a later publish does not drop an earlier overlapping append',
-        () async {
-      final exchange = MemoryJournalExchange();
-      final slow = createOp(actorId: 'dev-alpha');
+    test(
+      'a later publish does not drop an earlier overlapping append',
+      () async {
+        final exchange = MemoryJournalExchange();
+        final slow = createOp(actorId: 'dev-alpha');
 
-      final firstBatch = exchange.publish(scope: scope(), operations: [slow]);
-      final secondBatch = exchange.publish(
-        scope: scope(),
-        operations: [reviseOp(actorId: 'dev-beta', sequence: 1)],
-      );
-      await Future.wait([firstBatch, secondBatch]);
+        final firstBatch = exchange.publish(scope: scope(), operations: [slow]);
+        final secondBatch = exchange.publish(
+          scope: scope(),
+          operations: [reviseOp(actorId: 'dev-beta', sequence: 1)],
+        );
+        await Future.wait([firstBatch, secondBatch]);
 
-      final snapshot = await exchange.fetch(scope: scope());
-      expect(snapshot.length, 2);
-      expect(snapshot.byOperationId('op-a1'), slow);
-    });
+        final snapshot = await exchange.fetch(scope: scope());
+        expect(snapshot.length, 2);
+        expect(snapshot.byOperationId('op-a1'), slow);
+      },
+    );
 
-    test('delayed and out-of-order delivery converges on the same content',
-        () async {
-      final exchange = MemoryJournalExchange();
-      final create = createOp(sequence: 1);
-      final later = reviseOp(sequence: 3);
-      final earlier = reviseOp(operationId: 'op-b0', sequence: 2);
+    test(
+      'delayed and out-of-order delivery converges on the same content',
+      () async {
+        final exchange = MemoryJournalExchange();
+        final create = createOp(sequence: 1);
+        final later = reviseOp(sequence: 3);
+        final earlier = reviseOp(operationId: 'op-b0', sequence: 2);
 
-      await exchange.publish(scope: scope(), operations: [later]);
-      await exchange.publish(scope: scope(), operations: [create]);
-      await exchange.publish(scope: scope(), operations: [earlier]);
+        await exchange.publish(scope: scope(), operations: [later]);
+        await exchange.publish(scope: scope(), operations: [create]);
+        await exchange.publish(scope: scope(), operations: [earlier]);
 
-      final snapshot = await exchange.fetch(scope: scope());
+        final snapshot = await exchange.fetch(scope: scope());
 
-      expect(snapshot.length, 3);
-      expect(snapshot.byActorSequence('dev-alpha', 1), create);
-      expect(snapshot.byActorSequence('dev-alpha', 2), earlier);
-      expect(snapshot.byActorSequence('dev-alpha', 3), later);
-    });
+        expect(snapshot.length, 3);
+        expect(snapshot.byActorSequence('dev-alpha', 1), create);
+        expect(snapshot.byActorSequence('dev-alpha', 2), earlier);
+        expect(snapshot.byActorSequence('dev-alpha', 3), later);
+      },
+    );
 
-    test('no last-writer-wins: a late write never replaces accepted text',
-        () async {
-      final exchange = MemoryJournalExchange();
-      final first = createOp(recordedAt: DateTime.utc(2026, 11, 19, 8));
-      await exchange.publish(scope: scope(), operations: [first]);
+    test(
+      'no last-writer-wins: a late write never replaces accepted text',
+      () async {
+        final exchange = MemoryJournalExchange();
+        final first = createOp(recordedAt: DateTime.utc(2026, 11, 19, 8));
+        await exchange.publish(scope: scope(), operations: [first]);
 
-      final late = createOp(
-        text: '一个更晚的时间戳。',
-        recordedAt: DateTime.utc(2026, 11, 20, 8),
-      );
-      final result = committed(
-        await exchange.publish(scope: scope(), operations: [late]),
-      );
+        final late = createOp(
+          text: '一个更晚的时间戳。',
+          recordedAt: DateTime.utc(2026, 11, 20, 8),
+        );
+        final result = committed(
+          await exchange.publish(scope: scope(), operations: [late]),
+        );
 
-      expect(result.conflicts.single.kind,
-          JournalRefusalKind.operationIdCollision);
-      expect(
-        (await exchange.fetch(scope: scope())).operations.single.text,
-        '我会考完雅思。',
-      );
-    });
+        expect(
+          result.conflicts.single.kind,
+          JournalRefusalKind.operationIdCollision,
+        );
+        expect(
+          (await exchange.fetch(scope: scope())).operations.single.text,
+          '我会考完雅思。',
+        );
+      },
+    );
 
     test('independent writers with disjoint identities both land', () async {
       final exchange = MemoryJournalExchange();
@@ -661,27 +738,29 @@ void main() {
       expect(exchange.scopes, isEmpty);
     });
 
-    test('a failed publish leaves earlier accepted operations intact',
-        () async {
-      var publishes = 0;
-      final exchange = MemoryJournalExchange(
-        gate: () async {
-          publishes++;
-          if (publishes == 2) throw StateError('network down');
-        },
-      );
-      final accepted = createOp();
-      await exchange.publish(scope: scope(), operations: [accepted]);
+    test(
+      'a failed publish leaves earlier accepted operations intact',
+      () async {
+        var publishes = 0;
+        final exchange = MemoryJournalExchange(
+          gate: () async {
+            publishes++;
+            if (publishes == 2) throw StateError('network down');
+          },
+        );
+        final accepted = createOp();
+        await exchange.publish(scope: scope(), operations: [accepted]);
 
-      await expectLater(
-        exchange.publish(scope: scope(), operations: [reviseOp()]),
-        throwsA(isA<StateError>()),
-      );
+        await expectLater(
+          exchange.publish(scope: scope(), operations: [reviseOp()]),
+          throwsA(isA<StateError>()),
+        );
 
-      final snapshot = await exchange.fetch(scope: scope());
-      expect(snapshot.operations, [accepted]);
-      expect(snapshot.byOperationId('op-b1'), isNull);
-    });
+        final snapshot = await exchange.fetch(scope: scope());
+        expect(snapshot.operations, [accepted]);
+        expect(snapshot.byOperationId('op-b1'), isNull);
+      },
+    );
 
     test('publish never mutates the caller operation objects', () async {
       final exchange = MemoryJournalExchange();
@@ -693,14 +772,17 @@ void main() {
 
       expect(operation.canonicalForm, before);
       expect(operation.text, '我会考完雅思。');
-      expect((await exchange.fetch(scope: scope())).operations.single,
-          same(operation));
+      expect(
+        (await exchange.fetch(scope: scope())).operations.single,
+        same(operation),
+      );
     });
   });
 
   group('Unicode', () {
     test('text survives publish and fetch byte for byte', () async {
-      const text = '今天的日记：Emoji 😀, 中文, кириллица, ﷽, e\u0301, \u{1F1E8}\u{1F1F3}';
+      const text =
+          '今天的日记：Emoji 😀, 中文, кириллица, ﷽, e\u0301, \u{1F1E8}\u{1F1F3}';
       final exchange = MemoryJournalExchange();
       final operation = createOp(text: text);
 
@@ -715,7 +797,10 @@ void main() {
     test('replaying Unicode text is still a no-op', () async {
       const text = '重复的日记：😀😀😀';
       final exchange = MemoryJournalExchange();
-      await exchange.publish(scope: scope(), operations: [createOp(text: text)]);
+      await exchange.publish(
+        scope: scope(),
+        operations: [createOp(text: text)],
+      );
 
       final replay = committed(
         await exchange.publish(
@@ -725,7 +810,10 @@ void main() {
       );
 
       expect(replay.isNoOp, isTrue);
-      expect((await exchange.fetch(scope: scope())).operations.single.text, text);
+      expect(
+        (await exchange.fetch(scope: scope())).operations.single.text,
+        text,
+      );
     });
   });
 }

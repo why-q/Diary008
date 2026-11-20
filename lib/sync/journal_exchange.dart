@@ -24,8 +24,10 @@ import 'journal_scope.dart';
 /// The snapshot is detached: it owns its operation list, and the operations it
 /// carries are immutable, so a caller cannot mutate exchange state through it.
 class JournalSnapshot {
-  JournalSnapshot({required this.scope, required List<JournalOperation> operations})
-    : _operations = List.unmodifiable(operations);
+  JournalSnapshot({
+    required this.scope,
+    required List<JournalOperation> operations,
+  }) : _operations = List.unmodifiable(operations);
 
   final JournalScope scope;
   final List<JournalOperation> _operations;
@@ -54,9 +56,10 @@ class JournalSnapshot {
   }
 
   /// Every operation that addresses [entryId], oldest first.
-  List<JournalOperation> operationsForEntry(String entryId) => List.unmodifiable(
-    _operations.where((operation) => operation.entryId == entryId),
-  );
+  List<JournalOperation> operationsForEntry(String entryId) =>
+      List.unmodifiable(
+        _operations.where((operation) => operation.entryId == entryId),
+      );
 
   /// Stable text for the whole snapshot, for comparison and diagnostics.
   ///
@@ -171,8 +174,10 @@ final class JournalPublishCommitted extends JournalPublishResult {
 /// out of scope is refused entirely, so a caller never has to reason about a
 /// partially applied request.
 final class JournalPublishRejected extends JournalPublishResult {
-  JournalPublishRejected({required super.scope, required List<JournalRefusal> refusals})
-    : refusals = List.unmodifiable(refusals);
+  JournalPublishRejected({
+    required super.scope,
+    required List<JournalRefusal> refusals,
+  }) : refusals = List.unmodifiable(refusals);
 
   final List<JournalRefusal> refusals;
 

@@ -24,16 +24,17 @@ import '../journal/journal_operation.dart';
 import 'journal_exchange.dart';
 import 'journal_scope.dart';
 
-/// Awaited before each publish enters its commit step.
+/// Awaited before a publish enters its commit step.
 ///
-/// The hook is a test seam for ordering and failure simulation: it lets a test
+/// This is a test seam for ordering and failure simulation: it lets a test
 /// interleave two publishes, or fail one before it commits anything.
 typedef MemoryPublishGate = Future<void> Function();
 
 class MemoryJournalExchange implements JournalExchange {
-  MemoryJournalExchange({MemoryPublishGate? gate}) : _gate = gate;
+  MemoryJournalExchange({this.gate});
 
-  final MemoryPublishGate? _gate;
+  final MemoryPublishGate? gate;
+
   final Map<JournalScope, Journal> _journals = {};
 
   /// Scopes that currently hold at least one accepted operation.
@@ -80,7 +81,7 @@ class MemoryJournalExchange implements JournalExchange {
       return JournalPublishRejected(scope: scope, refusals: rejected);
     }
 
-    await _gate?.call();
+    await gate?.call();
 
     // Everything below is synchronous, so a concurrent publish cannot observe
     // a half-applied batch or have its own appended operations dropped.

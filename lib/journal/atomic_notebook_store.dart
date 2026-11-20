@@ -330,6 +330,13 @@ class AtomicNotebookStore {
       );
     }
 
+    // Canonicalize the offered snapshot exactly once, here, inside the lock.
+    // The decoded value is the only snapshot this call will ever encode,
+    // compare, or return: the caller's object is not consulted again, so a
+    // snapshot whose getters and encoding disagree cannot be validated with
+    // one shape and persisted with another.
+    final offered = CanonicalSnapshot.tryCanonicalize(notebook);
+
     final baseline = projectionBaseline;
     if (baseline != null) {
       // The persisted snapshot must already be the journal's projection.
@@ -346,7 +353,26 @@ class AtomicNotebookStore {
           reason: storedCheck.diagnosticCode,
         );
       }
+      if (offered == null) {
+        return EnvelopeCommitResult(
+          EnvelopeCommitStatus.projectionMismatch,
+          envelope: stored,
+          reason: projectionDiagnosticCode(
+            JournalProjectionStatus.projectionMismatch,
+          ),
+        );
+      }
     }
+    if (offered == null) {
+      // Even without projection validation, a snapshot that cannot round trip
+      // cannot be persisted without risking a different snapshot on disk.
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.failed,
+        envelope: stored,
+        reason: 'offered snapshot is not canonically decodable',
+      );
+    }
+    final offeredNotebook = offered.notebook;
 
     final journal = Journal(
       notebookId: base.journal.notebookId,
@@ -373,7 +399,7 @@ class AtomicNotebookStore {
         );
       case JournalAdmission.replayed:
         return EnvelopeCommitResult(
-          _sameNotebook(stored.notebook, notebook)
+          _sameNotebook(stored.notebook, offeredNotebook)
               ? EnvelopeCommitStatus.noChange
               : EnvelopeCommitStatus.duplicate,
           envelope: stored,
@@ -390,7 +416,7 @@ class AtomicNotebookStore {
       final offeredCheck = checkOfferedProjection(
         baseline: baseline,
         journal: journal,
-        notebook: notebook,
+        notebook: offered,
       );
       if (!offeredCheck.isValid) {
         return EnvelopeCommitResult(
@@ -402,7 +428,7 @@ class AtomicNotebookStore {
       }
     }
 
-    if (_sameNotebook(stored.notebook, notebook)) {
+    if (_sameNotebook(stored.notebook, offeredNotebook)) {
       // The journal changed but the snapshot did not. Persisting that would
       // record an operation whose effect is not in the notebook, so refuse.
       return EnvelopeCommitResult(
@@ -415,7 +441,7 @@ class AtomicNotebookStore {
 
     final next = NotebookEnvelope(
       revision: base.revision + 1,
-      notebook: notebook,
+      notebook: offeredNotebook,
       journal: journal,
     );
     return _replace(stored, next, admission);

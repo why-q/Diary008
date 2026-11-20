@@ -35,6 +35,17 @@
 ///    structurally different snapshot, so a caller can tell "this operation
 ///    cannot be projected" from "this snapshot is not the projection".
 ///
+/// Every snapshot is judged in its canonical form
+/// ---------------------------------------------
+/// `Notebook` is not final and its encoding is virtual, so a subclass can
+/// return journal-equivalent values from its getters while serializing
+/// different text. Comparing the caller's object would then validate one shape
+/// and persist another. Each snapshot is therefore canonicalized once, through
+/// its own encoding and back through `Notebook.fromJson`, and only the decoded
+/// plain value is compared, persisted, or returned. The baseline is detached
+/// the same way at construction, so it cannot drift after it was validated.
+/// The caller's object is never consulted twice.
+///
 /// Anything else fails closed with a typed status; [JournalProjectionStatus]
 /// never degrades to "assume it is fine".
 ///
@@ -111,16 +122,43 @@ enum JournalProjectionStatus {
 /// from its own durable source on every call, and must supply the same
 /// baseline for the lifetime of one envelope file.
 final class JournalProjectionBaseline {
-  JournalProjectionBaseline({required this.notebook, required this.scope}) {
-    validateNotebookSnapshot(notebook);
+  JournalProjectionBaseline({required Notebook notebook, required this.scope})
+    : notebook = _detach(notebook);
+
+  /// Detaches the baseline from the caller's object.
+  ///
+  /// A baseline that kept the caller's instance could drift after
+  /// construction: a subclass could answer honest getters when it was
+  /// validated and serialize something else on every later replay. The stored
+  /// value is the decoded, plain snapshot, so it cannot change.
+  static Notebook _detach(Notebook candidate) {
+    final canonical = CanonicalSnapshot.tryCanonicalize(candidate);
+    if (canonical == null) {
+      throw const EnvelopeFormatException(
+        'projection baseline is not a canonically decodable snapshot',
+        field: 'baseline',
+      );
+    }
+    return canonical.notebook;
   }
 
+  /// The plain snapshot taken before any operation was accepted. It is not the
+  /// caller's object, so later mutation of that object cannot affect the gate.
   final Notebook notebook;
+
   final JournalScope scope;
 
   @override
   String toString() => 'JournalProjectionBaseline($scope)';
 }
+
+/// Stable diagnostic code for a [JournalProjectionStatus].
+///
+/// Exposed so a caller that refuses on a status without building a check (for
+/// example, a snapshot that could not be canonicalized at all) reports the same
+/// code every other refusal path uses.
+String projectionDiagnosticCode(JournalProjectionStatus status) =>
+    'journal.projection.${status.name}';
 
 /// One gate decision, with the projections that produced it.
 ///
@@ -141,7 +179,7 @@ final class JournalProjectionCheck {
   bool get isValid => status == JournalProjectionStatus.valid;
 
   /// Stable, content-free code suitable for diagnostics.
-  String get diagnosticCode => 'journal.projection.${status.name}';
+  String get diagnosticCode => projectionDiagnosticCode(status);
 
   @override
   String toString() => 'JournalProjectionCheck($diagnosticCode)';
@@ -149,6 +187,10 @@ final class JournalProjectionCheck {
 
 /// Checks only the persisted side: the snapshot already in the envelope must be
 /// the projection of the envelope's own journal onto [baseline].
+///
+/// The stored snapshot is canonicalized the same way an offered one is, so a
+/// persisted envelope is judged by the bytes it would re-encode to rather than
+/// by whatever object it carries.
 ///
 /// This runs before admission, so a projection that is already corrupt or
 /// drifted is refused even when the offered operation would be a no-op.
@@ -161,6 +203,12 @@ JournalProjectionCheck checkStoredProjection({
       JournalProjectionStatus.scopeMismatch,
     );
   }
+  final canonical = CanonicalSnapshot.tryCanonicalize(stored.notebook);
+  if (canonical == null) {
+    return const JournalProjectionCheck._(
+      JournalProjectionStatus.baselineMismatch,
+    );
+  }
   final JournalReplayResult projection;
   try {
     projection = _project(baseline, stored.journal);
@@ -170,7 +218,7 @@ JournalProjectionCheck checkStoredProjection({
     );
   }
   if (projection.hasConflicts ||
-      !isSnapshotEquivalentToProjection(stored.notebook, projection)) {
+      !isSnapshotEquivalentToProjection(canonical.notebook, projection)) {
     return JournalProjectionCheck._(
       JournalProjectionStatus.baselineMismatch,
       storedProjection: projection,
@@ -182,19 +230,31 @@ JournalProjectionCheck checkStoredProjection({
   );
 }
 
-/// Checks only the offered side: [notebook] must be the conflict-free
-/// projection of [journal] onto [baseline].
+/// Checks only the offered side: the snapshot that will be written must be
+/// the conflict-free projection of [journal] onto [baseline].
+///
+/// The candidate is canonicalized first, and the decoded value is what gets
+/// compared. A snapshot whose getters and encoding disagree therefore cannot
+/// pass by looking correct and then serializing something else, and the caller
+/// encodes exactly the value that was checked.
 ///
 /// [journal] is the journal the caller intends to persist, already including
 /// the operation under consideration. This decides nothing about admission.
 JournalProjectionCheck checkOfferedProjection({
   required JournalProjectionBaseline baseline,
   required Journal journal,
-  required Notebook notebook,
+  required CanonicalSnapshot? notebook,
 }) {
   if (!baseline.scope.covers(journal)) {
     return const JournalProjectionCheck._(
       JournalProjectionStatus.scopeMismatch,
+    );
+  }
+  if (notebook == null) {
+    // The offered snapshot could not produce a canonically decodable form, so
+    // nothing about it can be trusted enough to persist.
+    return const JournalProjectionCheck._(
+      JournalProjectionStatus.projectionMismatch,
     );
   }
   final JournalReplayResult projection;
@@ -211,7 +271,7 @@ JournalProjectionCheck checkOfferedProjection({
       nextProjection: projection,
     );
   }
-  if (!isSnapshotEquivalentToProjection(notebook, projection)) {
+  if (!isSnapshotEquivalentToProjection(notebook.notebook, projection)) {
     return JournalProjectionCheck._(
       JournalProjectionStatus.projectionMismatch,
       nextProjection: projection,
@@ -228,7 +288,7 @@ JournalProjectionCheck checkProjectionBackedSnapshots({
   required JournalProjectionBaseline baseline,
   required NotebookEnvelope stored,
   required Journal journal,
-  required Notebook notebook,
+  required CanonicalSnapshot? notebook,
 }) {
   final storedCheck = checkStoredProjection(baseline: baseline, stored: stored);
   if (!storedCheck.isValid) return storedCheck;

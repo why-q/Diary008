@@ -196,7 +196,7 @@ void main() {
       final check = checkOfferedProjection(
         baseline: baseline,
         journal: _journal([_create()]),
-        notebook: _projectedCreate('新的日记。'),
+        notebook: CanonicalSnapshot.tryCanonicalize(_projectedCreate('新的日记。')),
       );
       expect(check.status, JournalProjectionStatus.valid);
       expect(check.nextProjection, isNotNull);
@@ -206,7 +206,7 @@ void main() {
       final check = checkOfferedProjection(
         baseline: baseline,
         journal: _journal([_create()]),
-        notebook: _projectedCreate('别的文字。'),
+        notebook: CanonicalSnapshot.tryCanonicalize(_projectedCreate('别的文字。')),
       );
       expect(check.status, JournalProjectionStatus.projectionMismatch);
     });
@@ -221,7 +221,7 @@ void main() {
       final check = checkOfferedProjection(
         baseline: baseline,
         journal: _journal([_create()]),
-        notebook: drifted,
+        notebook: CanonicalSnapshot.tryCanonicalize(drifted),
       );
       expect(check.status, JournalProjectionStatus.projectionMismatch);
     });
@@ -236,7 +236,7 @@ void main() {
       final check = checkOfferedProjection(
         baseline: baseline,
         journal: _journal([_create()]),
-        notebook: drifted,
+        notebook: CanonicalSnapshot.tryCanonicalize(drifted),
       );
       expect(check.status, JournalProjectionStatus.projectionMismatch);
     });
@@ -249,7 +249,7 @@ void main() {
           epochId: 'ep-other',
           operations: [_create(epochId: 'ep-other')],
         ),
-        notebook: _projectedCreate('新的日记。'),
+        notebook: CanonicalSnapshot.tryCanonicalize(_projectedCreate('新的日记。')),
       );
       expect(check.status, JournalProjectionStatus.scopeMismatch);
     });
@@ -258,7 +258,7 @@ void main() {
       final check = checkOfferedProjection(
         baseline: baseline,
         journal: _journal([_revise(entryId: 'entry-absent')]),
-        notebook: _baseNotebook(),
+        notebook: CanonicalSnapshot.tryCanonicalize(_baseNotebook()),
       );
       expect(check.status, JournalProjectionStatus.projectionConflict);
       expect(check.nextProjection!.hasConflicts, isTrue);
@@ -276,7 +276,9 @@ void main() {
       final check = checkOfferedProjection(
         baseline: baselineWithEntry,
         journal: _journal(competing),
-        notebook: _projectedRevision('补充说明。'),
+        notebook: CanonicalSnapshot.tryCanonicalize(
+          _projectedRevision('补充说明。'),
+        ),
       );
       expect(check.status, JournalProjectionStatus.projectionConflict);
     });
@@ -299,7 +301,7 @@ void main() {
           _create(),
           _create(operationId: 'op-2', entryId: 'entry-two', sequence: 2),
         ]),
-        notebook: _projectedCreate('别的文字。'),
+        notebook: CanonicalSnapshot.tryCanonicalize(_projectedCreate('别的文字。')),
       );
       expect(check.status, JournalProjectionStatus.baselineMismatch);
       expect(check.nextProjection, isNull);

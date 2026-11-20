@@ -624,10 +624,23 @@ void main() {
       await writeEnvelope(base);
       final before = await envelopeFile.readAsBytes();
 
+      // Guard the guard: this snapshot encodes as valid JSON and differs from
+      // the stored one, so the commit reaches the replacement envelope and the
+      // StateError escapes the narrow `on EnvelopeFormatException` catch.
+      expect(_RejectingSnapshot().toJson()['volumeName'], 'rejected');
+      expect(
+        () => NotebookEnvelope(
+          revision: 2,
+          notebook: _RejectingSnapshot(),
+          journal: base.journal,
+        ),
+        throwsA(isA<StateError>()),
+      );
+
       await expectLater(
         store.commit(
           base: base,
-          notebook: _BrokenNotebook(),
+          notebook: _RejectingSnapshot(),
           operation: createOp(),
         ),
         throwsA(isA<StateError>()),
@@ -636,6 +649,47 @@ void main() {
       expect(await envelopeFile.readAsBytes(), before);
       expect((await store.read())!.revision, base.revision);
     });
+
+    test(
+      'a non-storage failure after the temp write leaves no temp file',
+      () async {
+        final base = emptyEnvelope();
+        await writeEnvelope(base);
+        final before = await envelopeFile.readAsBytes();
+
+        final interrupted = AtomicNotebookStore(
+          envelopeFile,
+          scope: scope(),
+          beforeReplace: () async => throw StateError('hook failed'),
+        );
+        await expectLater(
+          interrupted.commit(
+            base: base,
+            notebook: notebookWithEntry(),
+            operation: createOp(),
+          ),
+          throwsA(isA<StateError>()),
+        );
+
+        // Cleanup still ran: no stray temp file, stored bytes untouched.
+        expect(await envelopeFile.readAsBytes(), before);
+        expect(
+          await dir.list().where((e) => e.path.endsWith('.tmp')).toList(),
+          isEmpty,
+        );
+        expect((await store.read())!.revision, base.revision);
+
+        // The failed attempt released the per-path chain, so a later commit on
+        // the same instance still lands instead of waiting on a broken tail.
+        final retried = await store.commit(
+          base: base,
+          notebook: notebookWithEntry(),
+          operation: createOp(),
+        );
+        expect(retried.status, EnvelopeCommitStatus.committed);
+        expect(retried.envelope!.revision, 2);
+      },
+    );
   });
 
   group('error messages', () {
@@ -806,7 +860,6 @@ void main() {
     });
 
     test('names that merely contain the reserved name stay usable', () async {
-      // Only the exact final segment, ignoring ASCII case, is reserved.
       for (final name in const [
         'notebook-envelope.json',
         'my-notebook.json',
@@ -819,6 +872,31 @@ void main() {
         );
         expect(candidate.file.uri.pathSegments.last, name);
       }
+    });
+
+    test('an ASCII-case variant cannot be used as a live commit target', () async {
+      // The constructor refusal is the only guard, so prove that no write lands
+      // even when the app notebook document is spelled with another ASCII case
+      // and the host file system would treat it as a different inode.
+      const appBytes = '{"schemaVersion":4,"volume":1,"entries":[]}';
+      await appNotebookFile.writeAsString(appBytes);
+      final base = emptyEnvelope();
+      await writeEnvelope(base);
+
+      for (final name in const ['NOTEBOOK.JSON', 'NoTeBoOk.JsOn']) {
+        final target = File('${dir.path}/$name');
+        expect(
+          () => AtomicNotebookStore(target, scope: scope()),
+          throwsArgumentError,
+        );
+        // Nothing was written under the variant name either.
+        expect(await target.exists(), isFalse);
+      }
+      expect(await appNotebookFile.readAsString(), appBytes);
+      expect(
+        (await dir.list().map((e) => e.path.split('/').last).toList())..sort(),
+        ['notebook-envelope.json', 'notebook.json'],
+      );
     });
   });
 
@@ -952,10 +1030,17 @@ void main() {
   });
 }
 
-/// A snapshot whose fields fail for a reason that is not a format rejection.
-class _BrokenNotebook extends Notebook {
-  _BrokenNotebook() : super(volume: 1, entries: const []);
+/// A snapshot that is valid and non-canonical as JSON, differs from the stored
+/// one, and fails only when the replacement envelope validates it.
+class _RejectingSnapshot extends Notebook {
+  _RejectingSnapshot() : super(volume: 1, entries: const []);
 
   @override
-  int get volume => throw StateError('broken snapshot');
+  Map<String, dynamic> toJson() => {
+    ...Notebook.empty().toJson(),
+    'volumeName': 'rejected',
+  };
+
+  @override
+  int get volume => throw StateError('snapshot rejected');
 }

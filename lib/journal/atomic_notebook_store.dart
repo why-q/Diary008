@@ -370,17 +370,6 @@ class AtomicNotebookStore {
       );
     }
 
-    if (_sameNotebook(stored.notebook, notebook)) {
-      // The journal changed but the snapshot did not. Persisting that would
-      // record an operation whose effect is not in the notebook, so refuse.
-      return EnvelopeCommitResult(
-        EnvelopeCommitStatus.inconsistent,
-        envelope: stored,
-        admission: admission,
-        reason: 'notebook snapshot does not reflect the appended operation',
-      );
-    }
-
     return _replace(stored, next, admission);
   }
 
@@ -423,6 +412,7 @@ class AtomicNotebookStore {
       if (hook != null) await hook();
       await temp.rename(file.path);
     } on EnvelopeFormatException {
+      await _discardTemp(temp);
       return EnvelopeCommitResult(
         EnvelopeCommitStatus.failed,
         envelope: stored,
@@ -430,12 +420,18 @@ class AtomicNotebookStore {
         reason: 'encoded envelope did not round trip',
       );
     } on FileSystemException catch (error) {
+      await _discardTemp(temp);
       return EnvelopeCommitResult(
         EnvelopeCommitStatus.failed,
         envelope: stored,
         admission: admission,
-        reason: await _discardTemp(temp, error),
+        reason: 'replacement failed with ${error.runtimeType}',
       );
+    } catch (_) {
+      // A non-storage error, such as a failing beforeReplace hook, keeps
+      // propagating, but the temp file written above must still be removed.
+      await _discardTemp(temp);
+      rethrow;
     }
     return EnvelopeCommitResult(
       EnvelopeCommitStatus.committed,
@@ -444,13 +440,14 @@ class AtomicNotebookStore {
     );
   }
 
-  Future<String> _discardTemp(File temp, FileSystemException error) async {
+  Future<void> _discardTemp(File temp) async {
     try {
       if (await temp.exists()) await temp.delete();
-    } on FileSystemException {
+    } catch (_) {
       // The stored file is already untouched; a stale temp file is harmless.
+      // Cleanup must never turn a typed result or an original error into its
+      // own failure.
     }
-    return 'replacement failed with ${error.runtimeType}';
   }
 }
 

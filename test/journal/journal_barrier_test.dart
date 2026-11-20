@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:diary008/journal/journal.dart';
 import 'package:diary008/journal/journal_barrier.dart';
 import 'package:diary008/journal/journal_operation.dart';
@@ -427,6 +429,51 @@ void main() {
           }
         }
       }
+    });
+
+    test('the decision constructor is closed to callers in any build mode', () {
+      // A private constructor cannot be called from a test, and an `assert`
+      // would vanish in release. Pin the source so the guarantee cannot be
+      // loosened back to a public assert-guarded constructor unnoticed.
+      final source = File('lib/journal/journal_barrier.dart')
+          .readAsStringSync();
+      expect(
+        source,
+        contains('const JournalBarrierDecision._({'),
+        reason: 'the only constructor must stay private',
+      );
+      expect(
+        RegExp(r'JournalBarrierDecision\(\{').hasMatch(source),
+        isFalse,
+        reason: 'no public named-argument constructor may be reopened',
+      );
+      expect(source, isNot(contains('assert(')));
+    });
+
+    test('equality and diagnostics stay value based and content free', () {
+      final first = decide(
+        JournalBarrierAction.restore,
+        emptyJournal(),
+        freshEpochId: _freshEpoch,
+      );
+      final second = decide(
+        JournalBarrierAction.restore,
+        emptyJournal(),
+        freshEpochId: _freshEpoch,
+      );
+      final blocked = decide(
+        JournalBarrierAction.wipe,
+        journalWithOperations(),
+      );
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect(first.allowed, isTrue);
+      expect(first.plan!.epochId, _freshEpoch);
+      expect(blocked.allowed, isFalse);
+      expect(blocked.plan, isNull);
+      expect(blocked.diagnosticCode, 'journal.barrier.wipe.pendingOperations');
+      expect(blocked.toString(), isNot(contains('synthetic fixture text')));
     });
   });
 }

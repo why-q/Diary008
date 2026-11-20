@@ -10,6 +10,11 @@
 - After the tests pass, push the feature branch and enable auto-merge on its pull request into `main`. Don't bypass required checks or reviews.
 - Exception for this project's direct work on `main`: commits made on `main` are pushed straight to `main` without a pull request, as the user requested. Feature branches still use pull requests.
 
+## Review gate
+
+- An independent reviewer must test and approve the exact commit and tree before any push. A changed candidate restarts the gate: new commits, amended commits, and rebased commits all require a fresh review of the new identity.
+- Experimental storage stays unwired from production paths, and previews of it use sample data only.
+
 ## Development workflow
 
 - The main agent handles high-level planning and discussion, and integration only. Workers own implementation, review, verification, and reporting.

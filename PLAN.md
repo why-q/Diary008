@@ -195,12 +195,101 @@ Delivered in `lib/sync/journal_exchange.dart`, `lib/sync/journal_scope.dart`, an
 - The convergence fixtures cover independent offline edits, reversed batch order, delayed delivery, retry after a lost response, duplicate delivery, competing actors on one entry, and same-scope identity collisions, using synthetic fixtures and a `MemoryJournalExchange` with the pure replay.
 - Android APK workflow status for both M4 commits on `main` is success at attempt 1: run `44695727807` for `caa0c6b` and run `44695729525` for `0918ea9`. These are APK build workflow results, not on-device tests; no Android device test was run for M4.
 
+### M3.5 — Durable historical epoch tracking (experimental persistence slice)
+
+Delivered in `lib/journal/epoch_history.dart`, `epoch_history_envelope.dart`,
+`epoch_history_store.dart`, and `epoch_history_barrier.dart`, with four focused
+test files. Pure additions: `notebook_envelope.dart`, `atomic_notebook_store.dart`,
+`journal_barrier.dart`, `journal.dart`, `notebook.json`, its writer, the backup
+format, and every production call site are byte-identical to the base (empty
+`git diff` on all of them). Nothing outside `lib/journal/` imports the new
+modules.
+
+Design constraints, and how each is met:
+
+- **Explicitly opt in, versioned.** The V2 document carries `schemaVersion: 2`
+  and its own `format` discriminator. The V1 decoder refuses it and the V2
+  decoder refuses V1, so neither can be mistaken for the other and no existing
+  file changes format. Legacy V1 keeps every default behaviour.
+- **Durable, append-only history.** `EpochHistory` is an immutable ordered list
+  of opaque epoch identifiers with no timestamps, counters, or derived dates.
+  Order is issuance order; the last entry is the current epoch. `append` and
+  `isAppendOnlyExtensionOf` permit growth only, so an epoch can never be
+  dropped, replaced, or reordered.
+- **No implicit bootstrap.** `EpochHistoryStore.create` is the only write and
+  it refuses an existing target with `alreadyExists`, so a notebook is never
+  bootstrapped or replaced. A stored V1 envelope reads as `historyMissing`
+  instead of being given an invented ledger.
+- **Fail closed.** Malformed, non-UTF-8, unsupported, or history-inconsistent
+  documents are typed failures that leave the stored bytes byte-identical; the
+  store never repairs, migrates, or upgrades.
+- **Only an initial document can be written.** `create` requires revision 1,
+  an empty notebook, an empty journal, and a ledger of exactly the epoch that
+  journal runs under. It takes no replacement document, so it cannot mint,
+  drop, or switch an epoch and cannot empty a notebook. `advance` remains a
+  pure value operation for codec fixtures; no adapter persists its result.
+- **Journal epoch must be recorded, not proven issued.** A document whose
+  journal epoch is not the newest ledger entry is refused at construction and
+  at decode, so a jump to an unrecorded epoch cannot be represented. The ledger
+  records epochs that were written, not epochs proven to have been issued;
+  issuance proof is the unimplemented barrier step.
+- **Scope is mandatory.** The store requires `notebookId` at construction, so a
+  store cannot read or replace another notebook's document. This is stricter
+  than the earlier optional parameter.
+- **Future reset is modelled, not shipped.** A reset is expressible as one
+  co-located document value, and a codec fixture round trips notebook, journal,
+  and ledger together, so a future reset cannot split across files. No adapter
+  can persist a reset: the only write is `create`, which refuses an existing
+  target. A shipped reset needs a new, reviewed operation that runs the
+  barrier policy.
+- **Pure historical barrier seam.** `planHistoricalBarrier` calls
+  `planJournalBarrier` first and returns its refusal unchanged, so V1 keeps
+  authority. For an allowed restore or wipe it then requires the ledger's
+  notebook to match, requires the ledger's newest epoch to be the journal epoch,
+  and requires the fresh epoch to be absent from the ledger. The reused-epoch
+  case is precisely what the V1 helper cannot see and the ledger can.
+
+Evaluation of the external model-worker ledger: no bundle
+(`/tmp/diary008-next/epoch-history.bundle`) and neither `fe8791df` nor
+`8f69b258` was reachable from this sandbox or from `origin`, so the proposal was
+not adopted directly. This slice implements the smallest internal equivalent
+notebook-scoped immutable ordered unique opaque epoch IDs, an explicit initial
+epoch, and no timestamps, deliberately excluding the rejected design's
+missing-file auto-seed and cross-file atomicity gap: there is no auto-seed, and
+notebook, journal, and ledger live in one document so they cannot diverge.
+
+Limitations, stated in the code:
+
+- The store mirrors `AtomicNotebookStore` limits: one writer per isolate, no
+  cross-process or cross-isolate coordination, and a crash-safe rename that is
+  not a tested power-loss guarantee.
+- The ledger is not wired into production, is not read or written by the app,
+  is not a backup format, and does not replace the V1 envelope.
+- Barrier execution (writing the reset document as a committed step and
+  releasing the reminder barrier) is still unimplemented; this slice proves the
+  storage shape only.
+- No Android device test was run, because no disposable device is available.
+  No real diary data was used.
+
+An independent review of `0e6c1dc` returned HOLD: the then-public
+`commit(base:, next:)` accepted any replacement document, so a destructive
+epoch reset and a same-epoch drop of journal and notebook were callable, and
+the store's scope parameter was optional. That claim of this section was
+therefore wrong and is corrected here. The follow-up replaces the generic
+writer with a create-only adapter, requires `notebookId`, and keeps `advance`
+as a pure value operation; regression tests pin both reproduced cases.
+
+Verification on Flutter 3.47.7 (Dart 3.13.5) at the frozen tip `e7f60be`
+(tree `89607b2c6a07e0f03f1cdc64475a421ea6bf7b09`) for the reviewed slice: 85
+focused and 457 full-suite tests passed with a clean analyzer. The follow-up is
+verified at its own frozen identity, recorded in PROCESS.jsonl.
+
 ### Known remaining production gates
 
 None of the M3 work is hooked into the app, and these gates are still open:
 
 1. **Snapshot/operation correspondence.** The default store still checks only that the snapshot changed, not that it reflects the operation. An experimental, explicitly instantiated `AtomicNotebookStore.projectionValidated` mode now exists: replay derives both snapshots from the journal and the store compares them with `isSnapshotEquivalentToProjection` against an explicit pre-journal baseline. It is not production wiring. Hookup still needs the baseline's durable, write-once provenance and a real caller, so this gate stays open for the app.
-2. **Epoch registry.** Historical epoch uniqueness needs a durable record of every epoch issued for a notebook. The barrier helper deliberately does not implement it, so a caller cannot yet rely on a plan for uniqueness.
+2. **Epoch registry.** Historical epoch uniqueness needs a durable record of every epoch *issued* for a notebook. The M3.5 slice supplies only the storage shape: a ledger document, an opt-in V2 envelope, a create-only single-file adapter, and a pure historical barrier seam. The ledger records epochs that were written, not epochs proven to have been issued, so this gate stays open. Issuance proof needs the unimplemented barrier step (see M3.5 below).
 3. **Single-writer extension.** The path lock covers one isolate. A second isolate, a second process, and path aliases a lexical normalization cannot see (symlinks, hard links, case-insensitive file systems, bind mounts) can still lose updates.
 4. **Durability.** `writeAsBytes(flush: true)` plus a same-directory rename survives a process crash. It is not a tested power-loss guarantee, and the directory is not fsynced.
 5. **Barrier execution.** The barrier module returns decisions and plans only. Nothing writes the restored or emptied notebook together with the fresh epoch, and no reminder barrier is released, because no production caller exists.

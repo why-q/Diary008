@@ -284,13 +284,95 @@ Verification on Flutter 3.47.7 (Dart 3.13.5) at the frozen tip `e7f60be`
 focused and 457 full-suite tests passed with a clean analyzer. The follow-up is
 verified at its own frozen identity, recorded in PROCESS.jsonl.
 
+### M3.6 — Capability-gated single-writer isolate boundary (experimental, unwired)
+
+Delivered as two new files only: `lib/journal/isolate_notebook_writer.dart` and
+`test/journal/isolate_notebook_writer_test.dart`. Every pre-existing file is
+byte-identical to the frozen base `37bf847` (`git diff 37bf847` is empty for
+tracked files), and nothing outside `lib/journal/` imports the module.
+
+The gate this addresses is number 3 below, "Single-writer extension". The
+rejected alternative is `fcntl` locks, which on Dart 3.13.5 are per-process:
+they do not serialize two isolates or two `FlutterEngine`s in one process, and a
+sibling lock file does not cover aliases (symlinks, hard links,
+case-insensitive paths, bind mounts). None of that is implemented here.
+
+Design, and what each part does and does not claim:
+
+- **One designated owner.** `NotebookWriterOwner.open` builds the only
+  `AtomicNotebookStore.projectionValidated` for its target and owns the only
+  handle to it. Every request is decoded, validated, and completed before the
+  next one starts, on one chained future, so two clients cannot interleave a
+  read-check-write.
+- **A capability, not a handle.** `NotebookWriterCapability` carries one
+  `SendPort` and has a library-private constructor, so a caller cannot mint one
+  that names a different owner, and it is sendable, so it can cross to another
+  isolate. It exposes no store, no `File`, and no write path of its own.
+- **The caller cannot describe the snapshot.** A commit carries only an
+  operation and the revision it observed. The owner replays its own journal onto
+  its own explicit baseline and offers that snapshot to the store, which
+  re-verifies the projection before writing. A client therefore cannot state an
+  effect the journal does not contain.
+- **Closed request set.** Frames are matched on exact keys, so an extra field is
+  refused rather than ignored; a caller cannot smuggle a snapshot, a scope, or a
+  second target. Unparseable operations are `invalidRequest`, out-of-scope
+  operations are `scopeMismatch`, and an absent target is `missing`, never a
+  bootstrap.
+- **Deterministic stale handling.** A base revision that is not the stored
+  revision returns `stale` with the current revision, so a client rebases
+  instead of overwriting. Every racing client that retries keeps its write.
+- **Disposal and recovery.** `close()` stops accepting work and then waits for
+  the accepted queue, so an accepted frame is not dropped mid-flight. A client
+  that outlives its owner gets `NotebookWriterUnavailableException`. Recovery is
+  opening a fresh owner over the same file; there is no reset and no public
+  re-open of a closed capability.
+
+What is explicitly not claimed:
+
+- **Uniqueness across independently constructed owners.** `open` is not
+  exclusive. Two owners on one file are two writers; inside one isolate the
+  store's path lock still serializes them, across isolates it does not. This
+  module narrows *who a capability can reach*, not *how many owners can exist*.
+  A durable single-writer guarantee still needs an OS-level lease or a single
+  owning process, which is outside this slice.
+- **Liveness.** A disposed owner has no shutdown broadcast, so a client learns
+  the owner is gone only by timing out.
+- **Durability** beyond the store's `flush` plus same-directory rename.
+
+Verification on Flutter 3.47.7 (Dart 3.13.5) in an isolated worktree at base
+`37bf847`: 16 focused tests in the new file, and 476 full-suite tests against 460
+measured on `37bf847`, so the addition is exactly the 16 new tests.
+`flutter analyze` reported no issues and `dart format` is clean for both new
+files. Mutation checks, each of which fails at least one test when applied:
+
+| Mutation | Failing test |
+| --- | --- |
+| Handlers run unserialized instead of on the chained queue | `serialization boundary two isolates never overlap inside the owner` |
+| Frame validation relaxed from exact keys to "required keys present" | `invalid requests a malformed frame is refused and the owner stays usable` |
+| Stale revision check removed | `a stale base is refused and rebasing keeps every write` |
+| `close()` stops draining the accepted queue | `disposal and recovery close drains queued requests instead of dropping them` |
+| Replay seeded from the stored snapshot instead of the baseline | `serialization boundary two isolates never overlap inside the owner` |
+
+Two checks were removed rather than kept as untested duplicates. An explicit
+operation scope check was dropped because `Journal.admit` already returns
+`rejected` for another notebook or epoch and the owner maps that to
+`scopeMismatch`; a duplicate check could only drift. A local
+`projection.hasConflicts` refusal was dropped because
+`AtomicNotebookStore.projectionValidated` already refuses that case and owns the
+rule, so the owner would otherwise keep a second copy of it.
+
+No Android device test was run, because no disposable device is available in
+this sandbox. Nothing is pushed, no pull request is open, no network provider or
+real diary data is involved, and no app, Android, or `notebook.json` change was
+made.
+
 ### Known remaining production gates
 
 None of the M3 work is hooked into the app, and these gates are still open:
 
 1. **Snapshot/operation correspondence.** The default store still checks only that the snapshot changed, not that it reflects the operation. An experimental, explicitly instantiated `AtomicNotebookStore.projectionValidated` mode now exists: replay derives both snapshots from the journal and the store compares them with `isSnapshotEquivalentToProjection` against an explicit pre-journal baseline. It is not production wiring. Hookup still needs the baseline's durable, write-once provenance and a real caller, so this gate stays open for the app.
 2. **Epoch registry.** Historical epoch uniqueness needs a durable record of every epoch *issued* for a notebook. The M3.5 slice supplies only the storage shape: a ledger document, an opt-in V2 envelope, a create-only single-file adapter, and a pure historical barrier seam. The ledger records epochs that were written, not epochs proven to have been issued, so this gate stays open. Issuance proof needs the unimplemented barrier step (see M3.5 below).
-3. **Single-writer extension.** The path lock covers one isolate. A second isolate, a second process, and path aliases a lexical normalization cannot see (symlinks, hard links, case-insensitive file systems, bind mounts) can still lose updates.
+3. **Single-writer extension.** The path lock covers one isolate. A second isolate, a second process, and path aliases a lexical normalization cannot see (symlinks, hard links, case-insensitive file systems, bind mounts) can still lose updates. The M3.6 slice narrows this to *reachability*: one capability names one designated owner, and requests through it cannot interleave. It does not make `open` exclusive, so independently constructed owners in different isolates remain uncoordinated, and this gate stays open for the app.
 4. **Durability.** `writeAsBytes(flush: true)` plus a same-directory rename survives a process crash. It is not a tested power-loss guarantee, and the directory is not fsynced.
 5. **Barrier execution.** The barrier module returns decisions and plans only. Nothing writes the restored or emptied notebook together with the fresh epoch, and no reminder barrier is released, because no production caller exists.
 6. **Replay policy gaps.** Expiry is decided from structure only, v1 revisions carry no civil date or due date, and competing actors are reported without a resolution policy.

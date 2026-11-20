@@ -41,6 +41,34 @@ import 'notebook_envelope.dart';
 /// File name reserved for the app's notebook document.
 const String _reservedNotebookFileName = 'notebook.json';
 
+/// Lowercases ASCII letters only, so the reserved name is refused identically
+/// on case-sensitive and case-insensitive file systems.
+String _asciiLowerCase(String value) {
+  final units = value.codeUnits;
+  var changed = false;
+  final lowered = List<int>.generate(units.length, (index) {
+    final unit = units[index];
+    if (unit >= 0x41 && unit <= 0x5A) {
+      changed = true;
+      return unit + 0x20;
+    }
+    return unit;
+  });
+  return changed ? String.fromCharCodes(lowered) : value;
+}
+
+/// True when [file] names the app notebook document, ignoring ASCII case and
+/// trailing separators or `.` segments.
+bool _targetsReservedNotebook(File file) {
+  final segments = file.uri.pathSegments;
+  for (var index = segments.length - 1; index >= 0; index--) {
+    final segment = segments[index];
+    if (segment.isEmpty || segment == '.') continue;
+    return _asciiLowerCase(segment) == _reservedNotebookFileName;
+  }
+  return false;
+}
+
 /// Outcome of [AtomicNotebookStore.commit].
 enum EnvelopeCommitStatus {
   /// The new revision replaced the stored file. This is the only status that
@@ -72,6 +100,10 @@ enum EnvelopeCommitStatus {
 
   /// Validation or the file replacement failed. The stored bytes were left
   /// untouched. Never reported as [committed].
+  ///
+  /// Also reported when the proposed snapshot is one the store would refuse to
+  /// load again: an envelope that cannot carry the snapshot is not written, so
+  /// the caller gets a typed result instead of an exception.
   failed,
 }
 
@@ -147,10 +179,10 @@ String _normalizePath(String path) {
 
 class AtomicNotebookStore {
   AtomicNotebookStore(this.file, {required this.scope, this.beforeReplace}) {
-    if (file.uri.pathSegments.isEmpty ||
-        file.uri.pathSegments.last == _reservedNotebookFileName) {
+    if (file.uri.pathSegments.isEmpty || _targetsReservedNotebook(file)) {
       // The app's notebook document is never an envelope. Refuse the target at
-      // construction so no write, temp file, or rename can touch it.
+      // construction so no write, temp file, or rename can touch it, on every
+      // platform, whatever the ASCII case of the name.
       throw ArgumentError.value(
         file.path,
         'file',
@@ -318,11 +350,37 @@ class AtomicNotebookStore {
       );
     }
 
-    final next = NotebookEnvelope(
-      revision: base.revision + 1,
-      notebook: notebook,
-      journal: journal,
-    );
+    // Build the replacement envelope first, so a proposed snapshot the store
+    // would refuse to load again is reported as `failed` instead of being
+    // written. Only the typed format rejection is converted; any other error
+    // from the snapshot is a programmer error and keeps propagating.
+    final NotebookEnvelope next;
+    try {
+      next = NotebookEnvelope(
+        revision: base.revision + 1,
+        notebook: notebook,
+        journal: journal,
+      );
+    } on EnvelopeFormatException {
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.failed,
+        envelope: stored,
+        admission: admission,
+        reason: 'proposed notebook snapshot is not a valid stored snapshot',
+      );
+    }
+
+    if (_sameNotebook(stored.notebook, notebook)) {
+      // The journal changed but the snapshot did not. Persisting that would
+      // record an operation whose effect is not in the notebook, so refuse.
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.inconsistent,
+        envelope: stored,
+        admission: admission,
+        reason: 'notebook snapshot does not reflect the appended operation',
+      );
+    }
+
     return _replace(stored, next, admission);
   }
 
@@ -331,6 +389,8 @@ class AtomicNotebookStore {
     NotebookEnvelope next,
     JournalAdmissionResult admission,
   ) async {
+    // Encoding runs outside the storage `try`: a failure here is a programmer
+    // error in the snapshot, not a storage failure, so it must propagate.
     final bytes = utf8.encode(next.encode());
     // A unique name per attempt: a crashed writer's stale temp file is never
     // reopened, and two instances can never share one temporary file.
@@ -362,17 +422,19 @@ class AtomicNotebookStore {
       final hook = beforeReplace;
       if (hook != null) await hook();
       await temp.rename(file.path);
-    } catch (error) {
-      try {
-        if (await temp.exists()) await temp.delete();
-      } catch (_) {
-        // The stored file is already untouched; a stale temp file is harmless.
-      }
+    } on EnvelopeFormatException {
       return EnvelopeCommitResult(
         EnvelopeCommitStatus.failed,
         envelope: stored,
         admission: admission,
-        reason: 'replacement failed with ${error.runtimeType}',
+        reason: 'encoded envelope did not round trip',
+      );
+    } on FileSystemException catch (error) {
+      return EnvelopeCommitResult(
+        EnvelopeCommitStatus.failed,
+        envelope: stored,
+        admission: admission,
+        reason: await _discardTemp(temp, error),
       );
     }
     return EnvelopeCommitResult(
@@ -380,6 +442,15 @@ class AtomicNotebookStore {
       envelope: next,
       admission: admission,
     );
+  }
+
+  Future<String> _discardTemp(File temp, FileSystemException error) async {
+    try {
+      if (await temp.exists()) await temp.delete();
+    } on FileSystemException {
+      // The stored file is already untouched; a stale temp file is harmless.
+    }
+    return 'replacement failed with ${error.runtimeType}';
   }
 }
 

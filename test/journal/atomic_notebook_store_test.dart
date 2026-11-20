@@ -540,6 +540,104 @@ void main() {
     });
   });
 
+  group('invalid proposed snapshot', () {
+    Notebook invalidNotebook() => Notebook(
+      volume: 1,
+      entries: [
+        JournalEntry(
+          id: 'entry-dup',
+          text: '甲',
+          createdAt: _now,
+          createdOn: DateTime.utc(2026, 11, 19),
+          due: DateTime.utc(2026, 11, 30),
+          status: EntryStatus.pending,
+        ),
+        JournalEntry(
+          id: 'entry-dup',
+          text: '乙',
+          createdAt: _now,
+          createdOn: DateTime.utc(2026, 11, 19),
+          due: DateTime.utc(2026, 11, 30),
+          status: EntryStatus.pending,
+        ),
+      ],
+    );
+
+    test(
+      'a snapshot the store would refuse is a typed failure, not a throw',
+      () async {
+        final base = emptyEnvelope();
+        await writeEnvelope(base);
+        final before = await envelopeFile.readAsBytes();
+
+        final result = await store.commit(
+          base: base,
+          notebook: invalidNotebook(),
+          operation: createOp(),
+        );
+
+        expect(result.status, EnvelopeCommitStatus.failed);
+        expect(result.isCommitted, isFalse);
+        expect(result.envelope!.revision, base.revision);
+        expect(result.reason, isNot(contains('entry-dup')));
+        expect(result.reason, isNot(contains('甲')));
+        // The stored bytes are unchanged and still usable afterwards.
+        expect(await envelopeFile.readAsBytes(), before);
+        final reloaded = await store.read();
+        expect(reloaded!.revision, base.revision);
+        expect(reloaded.notebook.entries, isEmpty);
+        expect(reloaded.journal.isEmpty, isTrue);
+        expect(
+          await dir.list().where((e) => e.path.endsWith('.tmp')).toList(),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'a later valid commit still succeeds after a refused snapshot',
+      () async {
+        final base = emptyEnvelope();
+        await writeEnvelope(base);
+        expect(
+          (await store.commit(
+            base: base,
+            notebook: invalidNotebook(),
+            operation: createOp(),
+          )).status,
+          EnvelopeCommitStatus.failed,
+        );
+
+        final retried = await store.commit(
+          base: base,
+          notebook: notebookWithEntry(),
+          operation: createOp(),
+        );
+
+        expect(retried.status, EnvelopeCommitStatus.committed);
+        expect(retried.envelope!.revision, 2);
+      },
+    );
+
+    test('an unrelated error from the snapshot keeps propagating', () async {
+      final base = emptyEnvelope();
+      await writeEnvelope(base);
+      final before = await envelopeFile.readAsBytes();
+
+      await expectLater(
+        store.commit(
+          base: base,
+          notebook: _BrokenNotebook(),
+          operation: createOp(),
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      expect(await envelopeFile.readAsBytes(), before);
+      expect((await store.read())!.revision, base.revision);
+    });
+  });
+
   group('error messages', () {
     test('a malformed envelope never echoes stored diary text', () async {
       const secret = '这是不该出现在错误里的日记正文';
@@ -681,6 +779,47 @@ void main() {
         ]);
       },
     );
+
+    test('ASCII case variants of notebook.json are refused everywhere', () async {
+      const appBytes = '{"schemaVersion":4,"volume":1,"entries":[]}';
+      await appNotebookFile.writeAsString(appBytes);
+
+      // Refusal must not depend on the file system being case insensitive.
+      for (final name in const [
+        'NOTEBOOK.JSON',
+        'Notebook.Json',
+        'nOtEbOoK.jSoN',
+        'notebook.JsOn',
+      ]) {
+        expect(
+          () => AtomicNotebookStore(File('${dir.path}/$name'), scope: scope()),
+          throwsArgumentError,
+          reason: '$name must be refused like notebook.json',
+        );
+      }
+      // Nothing was created for the refused names, and the real file is intact.
+      expect(await appNotebookFile.readAsString(), appBytes);
+      expect(
+        (await dir.list().map((e) => e.path.split('/').last).toList())..sort(),
+        ['notebook.json'],
+      );
+    });
+
+    test('names that merely contain the reserved name stay usable', () async {
+      // Only the exact final segment, ignoring ASCII case, is reserved.
+      for (final name in const [
+        'notebook-envelope.json',
+        'my-notebook.json',
+        'notebook.json.bak',
+        'notebook.json2',
+      ]) {
+        final candidate = AtomicNotebookStore(
+          File('${dir.path}/$name'),
+          scope: scope(),
+        );
+        expect(candidate.file.uri.pathSegments.last, name);
+      }
+    });
   });
 
   group('two instances on one path', () {
@@ -811,4 +950,12 @@ void main() {
       );
     });
   });
+}
+
+/// A snapshot whose fields fail for a reason that is not a format rejection.
+class _BrokenNotebook extends Notebook {
+  _BrokenNotebook() : super(volume: 1, entries: const []);
+
+  @override
+  int get volume => throw StateError('broken snapshot');
 }

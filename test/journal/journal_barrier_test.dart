@@ -157,6 +157,38 @@ void main() {
       expect(decision.reason, JournalBarrierReason.freshEpochRequired);
     });
 
+    test('historical reuse is left to the caller', () {
+      // No durable epoch registry exists, so the helper cannot know that
+      // 'ep-02' was issued before. It plans the same epoch twice, and only
+      // rejects the epoch the journal in hand already uses. Callers must check
+      // historical uniqueness themselves; this test pins that limit.
+      final first = decide(
+        JournalBarrierAction.restore,
+        emptyJournal(),
+        freshEpochId: _freshEpoch,
+      );
+      final second = decide(
+        JournalBarrierAction.restore,
+        emptyJournal(),
+        freshEpochId: _freshEpoch,
+      );
+
+      expect(first.allowed, isTrue);
+      expect(second.allowed, isTrue);
+      expect(first.plan, second.plan);
+
+      // A plan registers nothing, so the epoch stays reusable after planning.
+      first.plan!.emptyJournal();
+      expect(
+        decide(
+          JournalBarrierAction.wipe,
+          emptyJournal(),
+          freshEpochId: _freshEpoch,
+        ).allowed,
+        isTrue,
+      );
+    });
+
     test('a malformed fresh epoch is rejected', () {
       for (final invalid in ['', '12', 'ep 02', 'has space', '!bad']) {
         final decision = decide(
@@ -358,6 +390,43 @@ void main() {
       expect(a.emptyJournal().encode(), b.emptyJournal().encode());
       expect(log.encode(), before);
       expect(log.isEmpty, isTrue);
+    });
+  });
+
+  group('decision invariants', () {
+    test('every decision carries a plan only when it is an allowed restore '
+        'or wipe', () {
+      final journals = [emptyJournal(), journalWithOperations()];
+      final notebooks = [_notebook, 'nb-other', '', '12345'];
+      final freshEpochs = [null, _freshEpoch, _epoch, '', 'ep 02'];
+
+      for (final action in JournalBarrierAction.values) {
+        for (final journal in journals) {
+          for (final notebookId in notebooks) {
+            for (final freshEpochId in freshEpochs) {
+              final decision = planJournalBarrier(
+                action: action,
+                journal: journal,
+                notebookId: notebookId,
+                freshEpochId: freshEpochId,
+              );
+              final expectsPlan =
+                  decision.allowed && action != JournalBarrierAction.export;
+              expect(
+                decision.plan != null,
+                expectsPlan,
+                reason:
+                    '${decision.diagnosticCode} notebook=$notebookId '
+                    'epoch=$freshEpochId',
+              );
+              if (expectsPlan) {
+                expect(decision.plan!.notebookId, notebookId);
+                expect(decision.plan!.epochId, freshEpochId);
+              }
+            }
+          }
+        }
+      }
     });
   });
 }

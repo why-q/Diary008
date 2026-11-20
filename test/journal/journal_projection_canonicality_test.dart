@@ -318,8 +318,11 @@ void main() {
     );
 
     test(
-      'a committing snapshot subclass cannot leak into the result',
+      'the default store returns the caller snapshot, as it always has',
       () async {
+        // Canonicalization belongs to projection mode. The default path keeps
+        // the published storage semantics: the caller's own object is what the
+        // returned envelope carries, and its encoding is what landed on disk.
         await seed(_envelope());
         final store = AtomicNotebookStore(envelopeFile, scope: _scope());
         final honest = _projectedCreate('真实的文字。');
@@ -331,7 +334,7 @@ void main() {
         );
 
         expect(result.status, EnvelopeCommitStatus.committed);
-        expect(identical(result.envelope!.notebook, honest), isFalse);
+        expect(identical(result.envelope!.notebook, honest), isTrue);
         expect(result.envelope!.encode(), await envelopeFile.readAsString());
       },
     );

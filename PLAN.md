@@ -199,7 +199,7 @@ Delivered in `lib/sync/journal_exchange.dart`, `lib/sync/journal_scope.dart`, an
 
 None of the M3 work is hooked into the app, and these gates are still open:
 
-1. **Snapshot/operation correspondence.** The store checks that the snapshot changed, not that it reflects the operation. Hookup needs projection-backed validation: replay derives the snapshot from the journal and the store compares it with `isSnapshotEquivalentToProjection`, instead of trusting the caller.
+1. **Snapshot/operation correspondence.** The default store still checks only that the snapshot changed, not that it reflects the operation. An experimental, explicitly instantiated `AtomicNotebookStore.projectionValidated` mode now exists: replay derives both snapshots from the journal and the store compares them with `isSnapshotEquivalentToProjection` against an explicit pre-journal baseline. It is not production wiring. Hookup still needs the baseline's durable, write-once provenance and a real caller, so this gate stays open for the app.
 2. **Epoch registry.** Historical epoch uniqueness needs a durable record of every epoch issued for a notebook. The barrier helper deliberately does not implement it, so a caller cannot yet rely on a plan for uniqueness.
 3. **Single-writer extension.** The path lock covers one isolate. A second isolate, a second process, and path aliases a lexical normalization cannot see (symlinks, hard links, case-insensitive file systems, bind mounts) can still lose updates.
 4. **Durability.** `writeAsBytes(flush: true)` plus a same-directory rename survives a process crash. It is not a tested power-loss guarantee, and the directory is not fsynced.

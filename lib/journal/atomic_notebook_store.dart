@@ -28,12 +28,15 @@
 ///
 /// Projection-backed validation (opt in)
 /// -------------------------------------
-/// By default a commit still trusts the caller's snapshot/operation pairing.
+/// By default a commit still trusts the caller's snapshot/operation pairing,
+/// and the caller's own object is validated and persisted as before.
 /// [AtomicNotebookStore.projectionValidated] turns on the stronger mode: the
 /// caller supplies an explicit, immutable pre-journal baseline, and every
 /// commit replays the journal onto that baseline and compares both the
 /// persisted snapshot and the offered next snapshot with the result. A
 /// conflict or any mismatch is refused before a temporary file is written.
+/// In that mode the caller's object is never consulted: only its canonical,
+/// decoded form is compared or persisted.
 ///
 /// This adapter is experimental and is not wired into the app. `notebook.json`
 /// keeps its own format and its own writer, and is refused as a target.
@@ -289,11 +292,13 @@ class AtomicNotebookStore {
   /// replacement of [file].
   ///
   /// [base] must be the envelope the caller read and [notebook] must be the
-  /// snapshot that already includes the operation's effect. This adapter does
-  /// not and cannot verify that correspondence: the notebook model carries no
-  /// notebook, epoch, or entry-operation identity, so the pairing is asserted
-  /// by the caller. That gap must be closed by replay (M3.3) before this is
-  /// hooked up to the app.
+  /// snapshot that already includes the operation's effect. In the default
+  /// mode that correspondence is asserted by the caller: the notebook model
+  /// carries no notebook, epoch, or entry-operation identity, so it cannot be
+  /// verified here, and the caller's own object is what gets persisted.
+  /// [AtomicNotebookStore.projectionValidated] instead derives the
+  /// correspondence by replay and persists only the canonical decoded form.
+  /// Neither mode is wired into the app.
   Future<EnvelopeCommitResult> commit({
     required NotebookEnvelope base,
     required Notebook notebook,
@@ -362,30 +367,19 @@ class AtomicNotebookStore {
       );
     }
 
-    // The caller's snapshot is inspected once here, before canonicalization,
-    // only so a caller object whose own getters are broken surfaces its error
-    // instead of being silently replaced by its encoding. A format rejection
-    // falls through, because the canonical form decides the outcome; any other
-    // error propagates unchanged. The caller object never influences what is
-    // compared, persisted, or returned.
-    try {
-      validateNotebookSnapshot(notebook);
-    } on EnvelopeFormatException {
-      // Reported below as a typed result by the canonicalization path.
-    }
-
-    // Canonicalize the offered snapshot exactly once, here, inside the lock.
-    // The decoded value is the only snapshot this call will ever encode,
-    // compare, or return: the caller's object is not consulted again, so a
-    // snapshot whose getters and encoding disagree cannot be validated with
-    // one shape and persisted with another.
-    final offered = CanonicalSnapshot.tryCanonicalize(notebook);
-
     final baseline = projectionBaseline;
+
+    // Canonicalization is exclusive to projection mode. The default mode keeps
+    // the published storage path: the caller's own object is compared,
+    // validated, and encoded, so a caller object that cannot be encoded, or
+    // whose own getters are broken, surfaces its error exactly as before
+    // instead of being converted into a typed refusal.
+    CanonicalSnapshot? offered;
     if (baseline != null) {
       // The persisted snapshot must already be the journal's projection.
       // Checked before admission so an already drifted or corrupt projection
-      // is refused even for an operation that would otherwise be a no-op.
+      // is refused even for an operation that would otherwise be a no-op. It
+      // runs on the decoded stored envelope, never on the caller's object.
       final storedCheck = checkStoredProjection(
         baseline: baseline,
         stored: stored,
@@ -397,7 +391,15 @@ class AtomicNotebookStore {
           reason: storedCheck.diagnosticCode,
         );
       }
+      // Canonicalize the offered snapshot exactly once, here, inside the lock.
+      // The decoded value is the only snapshot this mode will ever encode,
+      // compare, or return: the caller's object is not consulted, so a
+      // snapshot whose getters and encoding disagree cannot be validated with
+      // one shape and persisted with another.
+      offered = CanonicalSnapshot.tryCanonicalize(notebook);
       if (offered == null) {
+        // The offered snapshot has no canonically decodable form, so nothing
+        // about it can be trusted enough to persist.
         return EnvelopeCommitResult(
           EnvelopeCommitStatus.projectionMismatch,
           envelope: stored,
@@ -407,16 +409,7 @@ class AtomicNotebookStore {
         );
       }
     }
-    if (offered == null) {
-      // Even without projection validation, a snapshot that cannot round trip
-      // cannot be persisted without risking a different snapshot on disk.
-      return EnvelopeCommitResult(
-        EnvelopeCommitStatus.failed,
-        envelope: stored,
-        reason: 'offered snapshot is not canonically decodable',
-      );
-    }
-    final offeredNotebook = offered.notebook;
+    final offeredNotebook = offered?.notebook ?? notebook;
 
     final journal = Journal(
       notebookId: base.journal.notebookId,
@@ -502,6 +495,7 @@ class AtomicNotebookStore {
         reason: 'proposed notebook snapshot is not a valid stored snapshot',
       );
     }
+
     return _replace(stored, next, admission);
   }
 

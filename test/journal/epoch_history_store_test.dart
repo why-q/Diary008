@@ -169,8 +169,8 @@ void main() {
     });
   });
 
-  group('no replacement API exists', () {
-    test('the store exposes only read and create', () {
+  group('no unrestricted replacement API exists', () {
+    test('the store exposes read, create, and one bounded reset', () {
       // Pins the surface: a future generic replacement entry point must be a
       // deliberate, reviewed change rather than an accident.
       final source = File('lib/journal/epoch_history_store.dart')
@@ -178,6 +178,7 @@ void main() {
 
       expect(source, contains('Future<EpochHistoryWriteResult> create('));
       expect(source, contains('Future<EpochHistoryEnvelope?> read()'));
+      expect(source, contains('Future<EpochResetOutcome> reset({'));
       // No entry point takes a caller-supplied replacement document, and none
       // is named commit or append.
       expect(source, isNot(contains('required EpochHistoryEnvelope next')));

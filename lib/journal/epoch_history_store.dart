@@ -5,29 +5,50 @@
 /// untouched: no production code imports this file, and a store refuses
 /// `notebook.json` as a target exactly as the version 1 store does.
 ///
-/// One writer operation, and deliberately only one
-/// -----------------------------------------------
+/// Two writes, each with a closed input
+/// ------------------------------------
 /// An earlier revision of this adapter exposed a generic
 /// `commit({base, next})`. That entry point accepted any replacement document,
 /// so a fresh epoch, an extended ledger, and an emptied notebook could be
 /// persisted in one call with no barrier check anywhere. Scope replacement was
 /// therefore callable, not merely planned, and an ordinary write could drop
 /// journal and notebook content under the same epoch. That entry point is gone,
-/// and no replacement API takes its place.
+/// and no replacement API takes its place. Neither write below takes a
+/// document, a revision, a journal, or a ledger from the caller.
 ///
-/// The only write this adapter offers is [create]: it builds the one permitted
-/// initial document for an absent target. It requires revision 1, an empty
-/// notebook, an empty journal, and a ledger holding exactly the epoch that
-/// journal runs under. It cannot express a different notebook, a different
-/// epoch, or an extra ledger entry, so it cannot mint, drop, or switch an
-/// epoch, and it cannot overwrite anything.
+/// [create] builds the one permitted initial document for an absent target. It
+/// requires revision 1, an empty notebook, an empty journal, and a ledger
+/// holding exactly the epoch that journal runs under. It cannot express a
+/// different notebook, a different epoch, or an extra ledger entry, so it
+/// cannot mint, drop, or switch an epoch, and it cannot overwrite anything.
 ///
-/// Because there is no append or replacement operation, a restore or wipe
-/// cannot be persisted through this adapter at all. A future reset needs a new,
-/// explicitly reviewed operation that runs the barrier policy in
-/// `epoch_history_barrier.dart`. Until then a historical V2 record is modelled
-/// as a codec fixture and verified as a value, which is enough to prove that a
-/// reset stays a single co-located document.
+/// [reset] executes one restore or wipe. It takes the state the caller observed
+/// and a validated fresh epoch, and it derives the replacement itself. Inside
+/// the same per-path queue it reads the stored document, checks the notebook
+/// binding, the observed revision, and the observed journal epoch, runs the
+/// historical barrier policy on the stored document alone, and only then reads
+/// the caller's backup snapshot. The replacement shares this file's single
+/// atomic replace: one flushed temporary file, validated by decoding those
+/// exact bytes, then one same-directory rename. The journal of the replacement
+/// is always empty and always runs under the fresh epoch, and the ledger always
+/// grows by exactly one entry, so a reset cannot mint two epochs, drop a
+/// recorded epoch, keep an earlier epoch's operations, or reuse a revision.
+///
+/// A reset never creates a document. An absent target is reported as missing
+/// and a legacy version 1 target as [EpochHistoryMissingException], so a reset
+/// cannot bootstrap, upgrade, repair, or fabricate one.
+///
+/// External changes are never overwritten
+/// --------------------------------------
+/// Between the read and the rename another writer can change the target file.
+/// Inside one isolate the path queue prevents that, but the queue is lexical
+/// and cannot see a second isolate, a second process, or a path alias. So
+/// before the rename the adapter re-reads the target and compares it with the
+/// document it planned from; if anything changed, the temporary file is
+/// discarded and the reset reports `stale` with the stored bytes untouched.
+/// This narrows the lost-update window to the interval between that check and
+/// the rename. It does not make the adapter exclusive, and it does not exclude
+/// a second isolate, a second process, or a path alias.
 ///
 /// Fail closed. A stored version 1 envelope is reported as
 /// [EpochHistoryMissingException] rather than being upgraded or bootstrapped,
@@ -44,6 +65,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'epoch_history_envelope.dart';
+import 'epoch_history_reset.dart';
 import 'journal_values.dart';
 import 'notebook_envelope.dart';
 
@@ -279,7 +301,154 @@ class EpochHistoryStore {
       document.envelope.notebook.entries.isEmpty &&
       document.envelope.notebook.archives.isEmpty;
 
+  /// Executes one restore or wipe against the stored document.
+  ///
+  /// The queue is the same per-path queue [create] uses, so a create and a
+  /// reset cannot interleave a read-check-write on one target. Inside it, and
+  /// before the caller's backup snapshot is read at all, this method re-reads
+  /// the stored document, checks the notebook binding, the observed revision,
+  /// and the observed journal epoch, and runs the historical barrier policy on
+  /// the stored document alone. The payload is canonicalized only after every
+  /// other check has passed; see `planEpochReset`.
+  ///
+  /// An absent target is [EpochResetStatus.missing] and a version 1 target is
+  /// [EpochResetStatus.legacyDocument]. Neither is created, upgraded, or
+  /// repaired.
+  Future<EpochResetOutcome> reset({
+    required EpochResetExpectation expected,
+    required JournalResetEpoch epoch,
+    required JournalResetPayload payload,
+  }) {
+    final key = _lockKey(file);
+    final tail = _pathTails[key] ?? Future<void>.value();
+    final result = tail.then(
+      (_) => _reset(expected: expected, epoch: epoch, payload: payload),
+    );
+    final chain = result.then((_) {}, onError: (_) {});
+    _pathTails[key] = chain;
+    chain.whenComplete(() {
+      if (identical(_pathTails[key], chain)) _pathTails.remove(key);
+    });
+    return result;
+  }
+
+  Future<EpochResetOutcome> _reset({
+    required EpochResetExpectation expected,
+    required JournalResetEpoch epoch,
+    required JournalResetPayload payload,
+  }) async {
+    final action = epochResetActionFor(payload);
+
+    EpochHistoryEnvelope? stored;
+    try {
+      stored = await read();
+    } on EpochHistoryMissingException {
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.legacyDocument,
+        reason: 'the stored document has no epoch history',
+      );
+    } on EnvelopeFormatException {
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.failed,
+        reason: 'stored document cannot be read',
+      );
+    } on EpochHistoryScopeMismatch {
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.scopeMismatch,
+        reason: 'stored document belongs to another notebook',
+      );
+    } on FileSystemException {
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.failed,
+        reason: 'stored document cannot be read',
+      );
+    }
+    if (stored == null) {
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.missing,
+        reason: 'no stored document to reset',
+      );
+    }
+
+    final plan = planEpochReset(
+      notebookId: notebookId,
+      stored: stored,
+      expected: expected,
+      epoch: epoch,
+      payload: payload,
+    );
+    if (!plan.isAllowed) return plan;
+
+    final next = plan.document!;
+    final attempt = await _atomicReplace(next, expectedStored: stored);
+    if (attempt.status == _ReplaceStatus.externalChange) {
+      final observed = attempt.observed;
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.stale,
+        revision: observed?.envelope.revision ?? stored.envelope.revision,
+        epochId:
+            observed?.envelope.journal.epochId ??
+            stored.envelope.journal.epochId,
+        reason: 'the stored document changed after it was observed',
+      );
+    }
+    if (attempt.status != _ReplaceStatus.written) {
+      return EpochResetOutcome.notApplied(
+        action: action,
+        status: EpochResetStatus.failed,
+        revision: stored.envelope.revision,
+        epochId: stored.envelope.journal.epochId,
+        reason: attempt.status == _ReplaceStatus.storageFailed
+            ? 'reset failed with ${attempt.errorType}'
+            : attempt.reason,
+      );
+    }
+    return EpochResetOutcome.applied(
+      action: action,
+      status: EpochResetStatus.committed,
+      revision: next.envelope.revision,
+      epochId: next.envelope.journal.epochId,
+      document: next,
+      barrier: plan.barrier,
+    );
+  }
+
   Future<EpochHistoryWriteResult> _replace(EpochHistoryEnvelope next) async {
+    final attempt = await _atomicReplace(next);
+    if (attempt.status == _ReplaceStatus.written) {
+      return EpochHistoryWriteResult(
+        EpochHistoryWriteStatus.committed,
+        document: next,
+      );
+    }
+    return EpochHistoryWriteResult(
+      EpochHistoryWriteStatus.failed,
+      reason: attempt.status == _ReplaceStatus.storageFailed
+          ? 'creation failed with ${attempt.errorType}'
+          : attempt.reason,
+    );
+  }
+
+  /// The one atomic replace: encode, verify those exact bytes, write a unique
+  /// flushed temporary file, run the test hook, optionally re-check the target,
+  /// then rename.
+  ///
+  /// [expectedStored] is supplied only by [reset]. When it is present, the
+  /// target is re-read after the hook and compared with the document the reset
+  /// was planned from. A changed, removed, or unreadable target discards the
+  /// temporary file and reports an external change, so a reset never overwrites
+  /// a write it did not plan from. [create] passes null and keeps its published
+  /// behaviour: no re-read, and the same statuses and reason strings as before.
+  Future<_ReplaceAttempt> _atomicReplace(
+    EpochHistoryEnvelope next, {
+    EpochHistoryEnvelope? expectedStored,
+  }) async {
     final bytes = utf8.encode(next.encode());
     final temp = File(
       '${file.path}.$pid-${_tempCounter++}-'
@@ -291,26 +460,37 @@ class EpochHistoryStore {
       final verified = EpochHistoryEnvelope.decode(utf8.decode(bytes));
       if (!verified.hasSameContentAs(next) ||
           verified.history.notebookId != notebookId) {
-        return const EpochHistoryWriteResult(
-          EpochHistoryWriteStatus.failed,
+        return const _ReplaceAttempt(
+          _ReplaceStatus.notRoundTripped,
           reason: 'encoded document did not round trip',
         );
       }
       await temp.writeAsBytes(bytes, flush: true);
       final hook = beforeReplace;
       if (hook != null) await hook();
+      if (expectedStored != null) {
+        final current = await _readForGuard();
+        if (current == null || !current.hasSameContentAs(expectedStored)) {
+          await _discardTemp(temp);
+          return _ReplaceAttempt(
+            _ReplaceStatus.externalChange,
+            observed: current,
+            reason: 'the stored document changed after it was observed',
+          );
+        }
+      }
       await temp.rename(file.path);
     } on EnvelopeFormatException {
       await _discardTemp(temp);
-      return const EpochHistoryWriteResult(
-        EpochHistoryWriteStatus.failed,
+      return const _ReplaceAttempt(
+        _ReplaceStatus.notRoundTripped,
         reason: 'encoded document did not round trip',
       );
     } on FileSystemException catch (error) {
       await _discardTemp(temp);
-      return EpochHistoryWriteResult(
-        EpochHistoryWriteStatus.failed,
-        reason: 'creation failed with ${error.runtimeType}',
+      return _ReplaceAttempt(
+        _ReplaceStatus.storageFailed,
+        errorType: error.runtimeType.toString(),
       );
     } catch (_) {
       // A non-storage error, such as a failing beforeReplace hook, keeps
@@ -318,10 +498,24 @@ class EpochHistoryStore {
       await _discardTemp(temp);
       rethrow;
     }
-    return EpochHistoryWriteResult(
-      EpochHistoryWriteStatus.committed,
-      document: next,
-    );
+    return const _ReplaceAttempt(_ReplaceStatus.written);
+  }
+
+  /// Reads the target for the pre-rename re-check, treating an unreadable or
+  /// out-of-scope document as an external change rather than as damage.
+  Future<EpochHistoryEnvelope?> _readForGuard() async {
+    try {
+      if (!await file.exists()) return null;
+      return await read();
+    } on EnvelopeFormatException {
+      return null;
+    } on EpochHistoryMissingException {
+      return null;
+    } on EpochHistoryScopeMismatch {
+      return null;
+    } on FileSystemException {
+      return null;
+    }
   }
 
   Future<void> _discardTemp(File temp) async {
@@ -333,4 +527,43 @@ class EpochHistoryStore {
       // own failure.
     }
   }
+}
+
+/// Outcome of the shared atomic replace, before it is mapped to a public type.
+enum _ReplaceStatus {
+  /// The target now holds the new document.
+  written,
+
+  /// The exact bytes did not decode back to the intended document.
+  notRoundTripped,
+
+  /// Writing, validating, or renaming failed.
+  storageFailed,
+
+  /// The target changed between the read the caller planned from and the
+  /// rename. Only a guarded replace reports this.
+  externalChange,
+}
+
+final class _ReplaceAttempt {
+  const _ReplaceAttempt(
+    this.status, {
+    this.reason,
+    this.errorType,
+    this.observed,
+  });
+
+  final _ReplaceStatus status;
+
+  /// Short static explanation for a non-storage failure. Never contains diary
+  /// text or file content.
+  final String? reason;
+
+  /// Runtime type name of the storage error, so each caller can keep its
+  /// published wording.
+  final String? errorType;
+
+  /// The document the guard found instead of the expected one, when it could
+  /// be read.
+  final EpochHistoryEnvelope? observed;
 }
